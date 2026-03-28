@@ -1,0 +1,16 @@
+﻿from __future__ import annotations
+
+from enum import Enum
+
+
+class JobStatus(str, Enum):
+    CREATED = "CREATED"
+    PREPARING_AUDIO = "PREPARING_AUDIO"
+    TRANSCRIBING = "TRANSCRIBING"
+    DIARIZING = "DIARIZING"
+    ALIGNING = "ALIGNING"
+    READY_FOR_REVIEW = "READY_FOR_REVIEW"
+    COMPLETED = "COMPLETED"
+    PARTIAL_SUCCESS = "PARTIAL_SUCCESS"
+    FAILED = "FAILED"
+    CANCELLED = "CANCELLED"

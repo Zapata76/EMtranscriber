@@ -1,0 +1,28 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+dist/
+dist_build/
+build/
+docs/
+images/
+# Keep only canonical PyInstaller specs
+*.spec
+!EMtranscriber.spec
+!EMtranscriber-fullml.spec
+.idea/
+.vscode/
+
+# Runtime artifacts
+.emtranscriber/
+logs/
+projects/
+*.lnk
+images/assistance/

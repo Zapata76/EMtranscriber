@@ -1,0 +1,16 @@
+<RCC>
+  <qresource prefix="/branding">
+    <file alias="desperate">../../../../images/desperate.PNG</file>
+    <file alias="fail">../../../../images/fail.PNG</file>
+    <file alias="icon">_generated_icon.png</file>
+    <file alias="panic">../../../../images/panic.PNG</file>
+    <file alias="sad">../../../../images/sad.PNG</file>
+    <file alias="tired">../../../../images/tired.png</file>
+    <file alias="welcome">../../../../images/welcome.PNG</file>
+    <file alias="working1">../../../../images/working1.PNG</file>
+    <file alias="working2">../../../../images/working2.PNG</file>
+    <file alias="working3">../../../../images/working3.PNG</file>
+    <file alias="working4">../../../../images/working4.PNG</file>
+    <file alias="working5">../../../../images/working5.PNG</file>
+  </qresource>
+</RCC>
