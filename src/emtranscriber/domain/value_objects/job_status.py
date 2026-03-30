@@ -1,10 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from enum import Enum
 
 
 class JobStatus(str, Enum):
     CREATED = "CREATED"
+    QUEUED = "QUEUED"
     PREPARING_AUDIO = "PREPARING_AUDIO"
     TRANSCRIBING = "TRANSCRIBING"
     DIARIZING = "DIARIZING"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -24,10 +25,18 @@ from emtranscriber.shared.i18n import UiTranslator
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, settings: AppSettings, translator: UiTranslator, parent: QWidget | None = None) -> None:
+    def __init__(
+        self,
+        settings: AppSettings,
+        translator: UiTranslator,
+        parent: QWidget | None = None,
+        *,
+        focus_hf_token: bool = False,
+    ) -> None:
         super().__init__(parent)
         self._settings = settings
         self._tr = translator
+        self._focus_hf_token = focus_hf_token
 
         self.setWindowTitle(self._tr.t("settings.title"))
         self.resize(820, 760)
@@ -45,6 +54,8 @@ class SettingsDialog(QDialog):
         root.addWidget(buttons)
 
         self._refresh_ai_controls()
+        if self._focus_hf_token:
+            QTimer.singleShot(0, self._focus_hf_token_field)
 
     def _build_defaults_group(self, root: QVBoxLayout) -> None:
         general_box = QGroupBox(self._tr.t("settings.defaults"))
@@ -65,7 +76,7 @@ class SettingsDialog(QDialog):
         self.ui_theme_combo = QComboBox()
         self.ui_theme_combo.addItem(self._tr.t("settings.theme.light"), "light")
         self.ui_theme_combo.addItem(self._tr.t("settings.theme.dark"), "dark")
-        theme_index = self.ui_theme_combo.findData(self._settings.ui_theme or "light")
+        theme_index = self.ui_theme_combo.findData(self._settings.ui_theme or "dark")
         self.ui_theme_combo.setCurrentIndex(theme_index if theme_index >= 0 else 0)
         general_form.addRow(self._tr.t("settings.ui_theme"), self.ui_theme_combo)
 
@@ -166,7 +177,7 @@ class SettingsDialog(QDialog):
 
         ui_language = self.ui_language_combo.currentData()
         ui_language_value = ui_language if ui_language else None
-        ui_theme_value = self.ui_theme_combo.currentData() or "light"
+        ui_theme_value = self.ui_theme_combo.currentData() or "dark"
 
         return AppSettings(
             default_asr_model=self.default_model_combo.currentText(),
@@ -213,8 +224,13 @@ class SettingsDialog(QDialog):
         self.ai_output_language_edit.setEnabled(enabled)
         self.ai_prompt_edit.setEnabled(enabled)
 
+    def _focus_hf_token_field(self) -> None:
+        self.hf_token_edit.setFocus()
+        self.hf_token_edit.selectAll()
+
     @staticmethod
     def _wrap(layout) -> QWidget:
         widget = QWidget()
         widget.setLayout(layout)
         return widget
+

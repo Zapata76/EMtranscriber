@@ -103,5 +103,48 @@ def test_artifact_store_honors_custom_root_override(tmp_path: Path) -> None:
 
     paths = store.ensure_job_directories("proj", "job", str(custom_root))
 
-    assert paths["base"] == custom_root / "proj" / "jobs" / "job"
+    assert paths["base"] == custom_root / "EMtranscriber" / "v2" / "proj" / "job"
+    assert paths["exports"] == paths["base"]
     assert paths["exports"].exists()
+    assert "analysis" not in paths
+
+
+def test_artifact_store_creates_analysis_only_when_requested(tmp_path: Path) -> None:
+    store = JobArtifactStore(tmp_path / "default_root")
+
+    paths = store.ensure_job_directories(
+        "proj",
+        "job",
+        str(tmp_path / "custom_root"),
+        include_analysis_dir=True,
+    )
+
+    assert "analysis" in paths
+    assert paths["analysis"].exists()
+
+
+def test_artifact_store_uses_timestamp_folder_when_metadata_available(tmp_path: Path) -> None:
+    store = JobArtifactStore(tmp_path / "default_root")
+    custom_root = tmp_path / "custom_root"
+
+    created_at = datetime(2026, 3, 30, 9, 45, 12)
+    paths = store.ensure_job_directories(
+        "proj",
+        "job",
+        str(custom_root),
+        source_file_path=str(tmp_path / "meeting.wav"),
+        created_at=created_at,
+    )
+
+    assert paths["base"] == custom_root / "EMtranscriber" / "v2" / "20260330_094512"
+
+
+def test_artifact_store_prefers_existing_legacy_layout(tmp_path: Path) -> None:
+    custom_root = tmp_path / "custom_root"
+    legacy_base = custom_root / "proj" / "jobs" / "job"
+    legacy_base.mkdir(parents=True)
+
+    store = JobArtifactStore(tmp_path / "default_root")
+    paths = store.ensure_job_directories("proj", "job", str(custom_root))
+
+    assert paths["base"] == legacy_base

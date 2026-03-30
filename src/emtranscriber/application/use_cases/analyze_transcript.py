@@ -11,8 +11,8 @@ from emtranscriber.infrastructure.ai_analysis.templates import (
     merge_prompt,
     normalize_output_language,
     normalize_template_key,
-    serialize_speaker_map,
     resolve_template_instruction,
+    serialize_speaker_map,
 )
 from emtranscriber.infrastructure.persistence.artifact_store import JobArtifactStore
 from emtranscriber.infrastructure.persistence.job_repository import JobRepository
@@ -42,7 +42,14 @@ class AnalyzeTranscriptUseCase:
             raise ValueError(f"Job not found: {job_id}")
 
         document = self._transcript_repository.load_document(job_id)
-        directories = self._artifact_store.ensure_job_directories(job.project_id, job.job_id, job.artifacts_root_path)
+        directories = self._artifact_store.ensure_job_directories(
+            job.project_id,
+            job.job_id,
+            job.artifacts_root_path,
+            source_file_path=job.source_file_path,
+            created_at=job.created_at,
+            include_analysis_dir=True,
+        )
 
         transcript_markdown = self._exporter.build_markdown(job, document)
         transcript_json = self._exporter.build_json(job, document)
@@ -111,4 +118,3 @@ class AnalyzeTranscriptUseCase:
             "analysis_text": result.analysis_text,
             "raw_response": result.raw_response,
         }
-

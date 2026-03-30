@@ -20,6 +20,7 @@ class Job:
     model_name: str | None = None
     device_used: str | None = None
     compute_type: str | None = None
+    execution_duration_seconds: int | None = None
     artifacts_root_path: str | None = None
     speaker_count_mode: str = "auto"
     exact_speakers: int | None = None

@@ -172,11 +172,20 @@ class TranscriptRepository:
         return TranscriptDocument(job_id=job_id, segments=segments, speakers=speakers)
 
     def rename_speaker(self, job_id: str, speaker_key: str, display_name: str) -> None:
-        value = display_name.strip()
-        resolved_name = value if value else speaker_key
+        self.rename_speakers_bulk(job_id, [(speaker_key, display_name)])
+
+    def rename_speakers_bulk(self, job_id: str, updates: list[tuple[str, str]]) -> None:
+        normalized_updates: list[tuple[str, str | None, int, str]] = []
+        for speaker_key, display_name in updates:
+            value = (display_name or "").strip()
+            resolved_name = value if value else speaker_key
+            normalized_updates.append((value if value else None, 1 if value else 0, speaker_key, resolved_name))
+
+        if not normalized_updates:
+            return
 
         with self._database.connect() as conn:
-            conn.execute(
+            conn.executemany(
                 """
                 UPDATE speakers
                 SET
@@ -184,26 +193,32 @@ class TranscriptRepository:
                   is_manually_named = ?
                 WHERE job_id = ? AND speaker_key = ?
                 """,
-                (value if value else None, 1 if value else 0, job_id, speaker_key),
+                [(display_name, manual, job_id, speaker_key) for display_name, manual, speaker_key, _resolved_name in normalized_updates],
             )
-            conn.execute(
+            conn.executemany(
                 """
                 UPDATE transcript_segments
                 SET speaker_name_resolved = ?
                 WHERE job_id = ? AND speaker_key = ?
                 """,
-                (resolved_name, job_id, speaker_key),
+                [(resolved_name, job_id, speaker_key) for _display_name, _manual, speaker_key, resolved_name in normalized_updates],
             )
             conn.commit()
 
     def update_segment_text(self, segment_id: str, text: str) -> None:
+        self.update_segment_texts_bulk([(segment_id, text)])
+
+    def update_segment_texts_bulk(self, updates: list[tuple[str, str]]) -> None:
+        if not updates:
+            return
+
         with self._database.connect() as conn:
-            conn.execute(
+            conn.executemany(
                 """
                 UPDATE transcript_segments
                 SET text = ?, source_type = 'edited'
                 WHERE segment_id = ?
                 """,
-                (text, segment_id),
+                [(text, segment_id) for segment_id, text in updates],
             )
             conn.commit()

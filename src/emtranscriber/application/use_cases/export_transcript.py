@@ -27,7 +27,13 @@ class ExportTranscriptUseCase:
             raise ValueError(f"Job not found: {job_id}")
 
         document = self._transcript_repository.load_document(job_id)
-        directories = self._artifact_store.ensure_job_directories(job.project_id, job.job_id, job.artifacts_root_path)
+        directories = self._artifact_store.ensure_job_directories(
+            job.project_id,
+            job.job_id,
+            job.artifacts_root_path,
+            source_file_path=job.source_file_path,
+            created_at=job.created_at,
+        )
 
         json_payload = self._exporter.build_json(job, document)
         md_path = directories["exports"] / "transcript.md"
@@ -46,4 +52,3 @@ class ExportTranscriptUseCase:
             "json": json_path,
             "srt": srt_path,
         }
-

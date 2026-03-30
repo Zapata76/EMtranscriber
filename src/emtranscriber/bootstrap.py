@@ -44,6 +44,7 @@ class AppContainer:
     ui_language: str
     translator: UiTranslator
     pipeline_is_stub: bool
+    is_first_run: bool
     project_repository: ProjectRepository
     job_repository: JobRepository
     transcript_repository: TranscriptRepository
@@ -222,12 +223,15 @@ def _register_dll_directories(site_packages_path: Path, logger) -> None:
 
 def build_container() -> AppContainer:
     app_paths = get_app_paths()
+    settings_file_existed = app_paths.settings_file.exists()
+    db_file_existed = app_paths.db_file.exists()
     app_paths.ensure()
 
     logger = configure_logging(app_paths.logs_dir)
 
     settings_store = SettingsStore(app_paths.settings_file)
     settings = settings_store.load()
+    is_first_run = (not settings_file_existed) or (not db_file_existed)
 
     ui_language = resolve_ui_language(settings.ui_language)
     translator = UiTranslator(ui_language)
@@ -285,6 +289,7 @@ def build_container() -> AppContainer:
         ui_language=ui_language,
         translator=translator,
         pipeline_is_stub=pipeline_is_stub,
+        is_first_run=is_first_run,
         project_repository=project_repository,
         job_repository=job_repository,
         transcript_repository=transcript_repository,

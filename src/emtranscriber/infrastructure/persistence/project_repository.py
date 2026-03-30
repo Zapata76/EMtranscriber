@@ -56,3 +56,22 @@ class ProjectRepository:
             created_at=created_at,
             updated_at=updated_at,
         )
+
+    def get_by_id(self, project_id: str) -> Project | None:
+        with self._database.connect() as conn:
+            row = conn.execute("SELECT * FROM projects WHERE project_id = ?", (project_id,)).fetchone()
+
+        if row is None:
+            return None
+
+        created_at = from_iso(row["created_at"])
+        updated_at = from_iso(row["updated_at"])
+        assert created_at is not None
+        assert updated_at is not None
+
+        return Project(
+            project_id=row["project_id"],
+            name=row["name"],
+            created_at=created_at,
+            updated_at=updated_at,
+        )

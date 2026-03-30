@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from uuid import uuid4
 
@@ -10,6 +11,9 @@ from emtranscriber.domain.entities.job_context_hints import JobContextHints
 from emtranscriber.domain.value_objects.job_status import JobStatus
 from emtranscriber.infrastructure.persistence.common import from_iso, to_iso, utc_now
 from emtranscriber.infrastructure.persistence.sqlite import SQLiteDatabase
+
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class JobRepository:
@@ -141,6 +145,15 @@ class JobRepository:
 
         return [self._row_to_job(row) for row in rows]
 
+    def list_by_status(self, status: JobStatus, limit: int = 500) -> list[Job]:
+        with self._database.connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM jobs WHERE status = ? ORDER BY created_at ASC LIMIT ?",
+                (status.value, limit),
+            ).fetchall()
+
+        return [self._row_to_job(row) for row in rows]
+
     def update_status(
         self,
         job_id: str,
@@ -149,6 +162,7 @@ class JobRepository:
         language_detected: str | None = None,
         error_message: str | None = None,
         completed: bool = False,
+        execution_duration_seconds: int | None = None,
     ) -> None:
         completed_at = to_iso(utc_now()) if completed else None
 
@@ -160,10 +174,11 @@ class JobRepository:
                   status = ?,
                   language_detected = COALESCE(?, language_detected),
                   error_message = ?,
-                  completed_at = COALESCE(?, completed_at)
+                  completed_at = COALESCE(?, completed_at),
+                  execution_duration_seconds = COALESCE(?, execution_duration_seconds)
                 WHERE job_id = ?
                 """,
-                (status.value, language_detected, error_message, completed_at, job_id),
+                (status.value, language_detected, error_message, completed_at, execution_duration_seconds, job_id),
             )
             conn.commit()
 
@@ -182,12 +197,13 @@ class JobRepository:
 
         row_keys = set(row.keys()) if hasattr(row, "keys") else set()
         artifacts_root_path = row["artifacts_root_path"] if "artifacts_root_path" in row_keys else None
+        execution_duration_seconds = row["execution_duration_seconds"] if "execution_duration_seconds" in row_keys else None
 
         return Job(
             job_id=row["job_id"],
             project_id=row["project_id"],
             source_file_path=row["source_file_path"],
-            status=JobStatus(row["status"]),
+            status=JobRepository._parse_status(row["status"]),
             created_at=created_at,
             completed_at=from_iso(row["completed_at"]),
             working_audio_path=row["working_audio_path"],
@@ -196,6 +212,7 @@ class JobRepository:
             model_name=row["model_name"],
             device_used=row["device_used"],
             compute_type=row["compute_type"],
+            execution_duration_seconds=execution_duration_seconds,
             artifacts_root_path=artifacts_root_path,
             speaker_count_mode=row["speaker_count_mode"] or "auto",
             exact_speakers=row["exact_speakers"],
@@ -203,3 +220,14 @@ class JobRepository:
             max_speakers=row["max_speakers"],
             error_message=row["error_message"],
         )
+
+    @staticmethod
+    def _parse_status(raw_status: str | None) -> JobStatus:
+        if not raw_status:
+            return JobStatus.CREATED
+
+        try:
+            return JobStatus(raw_status)
+        except ValueError:
+            _LOGGER.warning("Unknown job status '%s' found in DB; falling back to CREATED.", raw_status)
+            return JobStatus.CREATED

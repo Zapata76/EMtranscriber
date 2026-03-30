@@ -62,11 +62,11 @@ QLabel#mainSidebarImage {
 
 def normalize_theme_name(theme: str | None) -> str:
     if not isinstance(theme, str):
-        return "light"
+        return "dark"
     candidate = theme.strip().lower()
     if candidate in SUPPORTED_UI_THEMES:
         return candidate
-    return "light"
+    return "dark"
 
 
 def apply_theme(app: QApplication, theme: str | None) -> str:
@@ -76,3 +76,4 @@ def apply_theme(app: QApplication, theme: str | None) -> str:
     else:
         app.setStyleSheet("")
     return normalized
+

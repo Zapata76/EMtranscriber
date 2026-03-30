@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Name = "EMtranscriber",
     [string]$Entry = "src\emtranscriber\main.py",
     [ValidateSet("ui-shell", "full-ml")]
@@ -26,6 +26,8 @@ $args = @(
     "--paths", "src",
     "--add-data", "migrations;migrations",
     "--add-data", "LICENSE;.",
+    "--add-data", "requirements-ml.txt;.",
+    "--add-data", "scripts/install_ml_runtime.ps1;.",
     # Keep real pipeline modules packaged even in ui-shell profile.
     # Heavy ML libs are still excluded there and loaded from local Python site-packages at runtime.
     "--hidden-import", "emtranscriber.infrastructure.asr.faster_whisper_service",

@@ -1,4 +1,4 @@
-﻿# -*- mode: python ; coding: utf-8 -*-
+# -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_submodules
 
 hiddenimports = ['emtranscriber.infrastructure.asr.faster_whisper_service', 'emtranscriber.infrastructure.diarization.pyannote_service', 'ctypes', '_ctypes', 'ctypes.wintypes', 'glob', 'ipaddress', 'configparser', 'sysconfig', 'http', 'http.cookies', 'xml', 'xml.etree', 'xml.etree.ElementTree', 'xml.parsers', 'xml.parsers.expat', 'timeit', 'importlib.resources', 'importlib.metadata', 'asyncio', 'asyncio.base_events', 'asyncio.coroutines']
@@ -12,7 +12,7 @@ a = Analysis(
     ['src\\emtranscriber\\main.py'],
     pathex=['src'],
     binaries=[],
-    datas=[('migrations', 'migrations'), ('LICENSE', '.')],
+    datas=[('migrations', 'migrations'), ('LICENSE', '.'), ('requirements-ml.txt', '.'), ('scripts/install_ml_runtime.ps1', '.')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
@@ -50,4 +50,3 @@ coll = COLLECT(
     upx_exclude=[],
     name='EMtranscriber',
 )
-

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtWidgets import (
@@ -29,6 +30,19 @@ from emtranscriber.infrastructure.settings.app_settings import AppSettings
 from emtranscriber.shared.i18n import UiTranslator
 
 
+@dataclass(slots=True)
+class NewJobPrefill:
+    project_name: str | None = None
+    device_used: str | None = None
+    compute_type: str | None = None
+    speaker_count_mode: str | None = None
+    exact_speakers: int | None = None
+    min_speakers: int | None = None
+    max_speakers: int | None = None
+    context_hints_enabled: bool | None = None
+    context_hints: JobContextHints | None = None
+
+
 class NewJobDialog(QDialog):
     def __init__(
         self,
@@ -36,6 +50,7 @@ class NewJobDialog(QDialog):
         translator: UiTranslator,
         parent: QWidget | None = None,
         initial_language: str | None = None,
+        prefill: NewJobPrefill | None = None,
     ) -> None:
         super().__init__(parent)
         self._settings = settings
@@ -130,8 +145,6 @@ class NewJobDialog(QDialog):
         speaker_layout.addWidget(self.max_label, 3, 0)
         speaker_layout.addWidget(self.max_speakers_spin, 3, 1)
 
-        self._on_speaker_mode_changed(self.speaker_mode_combo.currentText())
-
         hints_box = QGroupBox(self._tr.t("new_job.hints_group"))
         hints_layout = QFormLayout(hints_box)
         root.addWidget(hints_box)
@@ -166,6 +179,12 @@ class NewJobDialog(QDialog):
         self.entities_edit.setPlaceholderText(self._tr.t("new_job.csv_entities_placeholder"))
         hints_layout.addRow(self._tr.t("new_job.entities"), self.entities_edit)
 
+        if prefill is not None:
+            self._apply_prefill(prefill)
+        else:
+            self._on_speaker_mode_changed(self.speaker_mode_combo.currentText())
+            self._on_hints_toggled(self.enable_hints_check.isChecked())
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self._on_accept)
         buttons.rejected.connect(self.reject)
@@ -176,6 +195,50 @@ class NewJobDialog(QDialog):
         widget = QWidget()
         widget.setLayout(layout)
         return widget
+
+    def _apply_prefill(self, prefill: NewJobPrefill) -> None:
+        if prefill.project_name and prefill.project_name.strip():
+            self.project_name_edit.setText(prefill.project_name.strip())
+
+        if prefill.device_used and self.device_combo.findText(prefill.device_used) >= 0:
+            self.device_combo.setCurrentText(prefill.device_used)
+
+        if prefill.compute_type and self.compute_type_combo.findText(prefill.compute_type) >= 0:
+            self.compute_type_combo.setCurrentText(prefill.compute_type)
+
+        if prefill.speaker_count_mode and self.speaker_mode_combo.findText(prefill.speaker_count_mode) >= 0:
+            self.speaker_mode_combo.setCurrentText(prefill.speaker_count_mode)
+
+        if prefill.exact_speakers is not None:
+            self.exact_speakers_spin.setValue(
+                max(self.exact_speakers_spin.minimum(), min(prefill.exact_speakers, self.exact_speakers_spin.maximum()))
+            )
+
+        if prefill.min_speakers is not None:
+            self.min_speakers_spin.setValue(
+                max(self.min_speakers_spin.minimum(), min(prefill.min_speakers, self.min_speakers_spin.maximum()))
+            )
+
+        if prefill.max_speakers is not None:
+            self.max_speakers_spin.setValue(
+                max(self.max_speakers_spin.minimum(), min(prefill.max_speakers, self.max_speakers_spin.maximum()))
+            )
+
+        self._on_speaker_mode_changed(self.speaker_mode_combo.currentText())
+
+        if prefill.context_hints_enabled is not None:
+            self.enable_hints_check.setChecked(prefill.context_hints_enabled)
+
+        hints = prefill.context_hints
+        if hints is not None:
+            self.domain_context_edit.setPlainText(hints.domain_context or "")
+            self.hotwords_edit.setText(", ".join(hints.hotwords))
+            self.glossary_edit.setText(", ".join(hints.glossary_terms))
+            self.participants_edit.setText(", ".join(hints.expected_participants))
+            self.acronyms_edit.setText(", ".join(hints.expected_acronyms))
+            self.entities_edit.setText(", ".join(hints.expected_entities))
+
+        self._on_hints_toggled(self.enable_hints_check.isChecked())
 
     def _on_browse(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

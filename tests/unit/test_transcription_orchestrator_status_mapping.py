@@ -19,6 +19,7 @@ class FakeJobRepository:
         self.last_status: JobStatus | None = None
         self.last_error: str | None = None
         self.completed = False
+        self.execution_duration_seconds: int | None = None
 
     def get_by_id(self, job_id: str) -> Job | None:
         return self.job if job_id == self.job.job_id else None
@@ -37,10 +38,13 @@ class FakeJobRepository:
         language_detected: str | None = None,
         error_message: str | None = None,
         completed: bool = False,
+        execution_duration_seconds: int | None = None,
     ) -> None:
         self.last_status = status
         self.last_error = error_message
         self.completed = completed
+        self.execution_duration_seconds = execution_duration_seconds
+        self.job.execution_duration_seconds = execution_duration_seconds
         if language_detected:
             self.job.language_detected = language_detected
 
@@ -54,7 +58,15 @@ class FakeArtifactStore:
     def __init__(self, root: Path) -> None:
         self.root = root
 
-    def ensure_job_directories(self, project_id: str, job_id: str, artifacts_root_path: str | None = None) -> dict[str, Path]:
+    def ensure_job_directories(
+        self,
+        project_id: str,
+        job_id: str,
+        artifacts_root_path: str | None = None,
+        *,
+        source_file_path: str | None = None,
+        created_at=None,
+    ) -> dict[str, Path]:
         base = self.root / project_id / job_id
         paths = {
             "source": base / "source",
@@ -185,6 +197,7 @@ def test_runtime_error_is_failed_not_cancelled(tmp_path: Path) -> None:
     assert repo.last_status == JobStatus.FAILED
     assert repo.last_error == "boom asr"
     assert repo.completed is True
+    assert repo.execution_duration_seconds is not None
 
 
 def test_explicit_cancel_is_reported_as_cancelled(tmp_path: Path) -> None:
@@ -196,6 +209,7 @@ def test_explicit_cancel_is_reported_as_cancelled(tmp_path: Path) -> None:
 
     assert result == JobStatus.CANCELLED
     assert repo.last_status == JobStatus.CANCELLED
+    assert repo.execution_duration_seconds is not None
     assert asr.called is False
 
 
@@ -211,5 +225,5 @@ def test_cancel_during_asr_progress_is_honored(tmp_path: Path) -> None:
 
     assert result == JobStatus.CANCELLED
     assert repo.last_status == JobStatus.CANCELLED
+    assert repo.execution_duration_seconds is not None
     assert asr.progress_calls == 1
-

@@ -17,7 +17,7 @@ class AppSettings:
     huggingface_token: str | None = None
 
     ui_language: str | None = None
-    ui_theme: str = "light"
+    ui_theme: str = "dark"
 
     ai_analysis_enabled: bool = False
     ai_analysis_provider: str = "disabled"
@@ -66,8 +66,9 @@ def _to_bool(value) -> bool:
 
 def _normalize_ui_theme(value: str | None) -> str:
     if not isinstance(value, str):
-        return "light"
+        return "dark"
     candidate = value.strip().lower()
     if candidate in SUPPORTED_UI_THEMES:
         return candidate
-    return "light"
+    return "dark"
+

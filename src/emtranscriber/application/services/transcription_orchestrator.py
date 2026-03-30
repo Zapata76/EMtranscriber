@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import time
 from collections.abc import Callable
 from pathlib import Path
 
@@ -56,10 +57,20 @@ class TranscriptionOrchestrator:
 
         diarization_error: Exception | None = None
         using_stub_pipeline = False
+        started_at_monotonic = time.monotonic()
+
+        def elapsed_seconds() -> int:
+            return max(0, int(time.monotonic() - started_at_monotonic))
 
         try:
             self._guard_not_cancelled(job_id)
-            directories = self._artifact_store.ensure_job_directories(job.project_id, job.job_id, job.artifacts_root_path)
+            directories = self._artifact_store.ensure_job_directories(
+                job.project_id,
+                job.job_id,
+                job.artifacts_root_path,
+                source_file_path=job.source_file_path,
+                created_at=job.created_at,
+            )
 
             self._update(job_id, JobStatus.PREPARING_AUDIO, on_progress, "Preparing media", 10)
             source_path = Path(job.source_file_path)
@@ -164,13 +175,19 @@ class TranscriptionOrchestrator:
                     JobStatus.PARTIAL_SUCCESS,
                     error_message="Stub pipeline active: output is demo-only and not a real transcription.",
                     completed=True,
+                    execution_duration_seconds=elapsed_seconds(),
                 )
                 self._notify_progress(on_progress, JobStatus.PARTIAL_SUCCESS, "Completed in demo mode (stub pipeline)", 100)
                 self._logger.warning("Job completed in stub mode: %s", job_id)
                 return JobStatus.PARTIAL_SUCCESS
 
             if diarization_error is None:
-                self._job_repository.update_status(job_id, JobStatus.COMPLETED, completed=True)
+                self._job_repository.update_status(
+                    job_id,
+                    JobStatus.COMPLETED,
+                    completed=True,
+                    execution_duration_seconds=elapsed_seconds(),
+                )
                 self._notify_progress(on_progress, JobStatus.COMPLETED, "Completed", 100)
                 self._logger.info("Job completed: %s", job_id)
                 return JobStatus.COMPLETED
@@ -180,12 +197,18 @@ class TranscriptionOrchestrator:
                 JobStatus.PARTIAL_SUCCESS,
                 error_message=f"Diarization failed: {diarization_error}",
                 completed=True,
+                execution_duration_seconds=elapsed_seconds(),
             )
             self._notify_progress(on_progress, JobStatus.PARTIAL_SUCCESS, f"Completed without speaker diarization ({diarization_error})", 100)
             self._logger.warning("Job partial success: %s", job_id)
             return JobStatus.PARTIAL_SUCCESS
         except JobCancelledError:
-            self._job_repository.update_status(job_id, JobStatus.CANCELLED, completed=True)
+            self._job_repository.update_status(
+                job_id,
+                JobStatus.CANCELLED,
+                completed=True,
+                execution_duration_seconds=elapsed_seconds(),
+            )
             self._notify_progress(on_progress, JobStatus.CANCELLED, "Cancelled by user", 100)
             self._logger.warning("Job cancelled: %s", job_id)
             return JobStatus.CANCELLED
@@ -195,6 +218,7 @@ class TranscriptionOrchestrator:
                 JobStatus.FAILED,
                 error_message=str(exc),
                 completed=True,
+                execution_duration_seconds=elapsed_seconds(),
             )
             self._logger.exception("Job failed: %s", job_id)
             raise
@@ -260,4 +284,3 @@ class TranscriptionOrchestrator:
     def _guard_not_cancelled(self, job_id: str) -> None:
         if job_id in self._cancelled_jobs:
             raise JobCancelledError("Job cancelled")
-
