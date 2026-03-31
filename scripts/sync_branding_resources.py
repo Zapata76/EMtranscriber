@@ -195,8 +195,13 @@ def main() -> int:
     args = build_parser().parse_args()
 
     images_dir = args.images_dir.resolve()
+    
+    # If images directory doesn't exist, skip branding resource generation
+    # and use default/existing resources
     if not images_dir.exists() or not images_dir.is_dir():
-        raise FileNotFoundError(f"Images directory not found: {images_dir}")
+        print(f"Warning: Images directory not found at {images_dir}")
+        print("Skipping branding resource sync. Using existing resources if available.")
+        return 0
 
     files_by_alias: dict[str, Path] = {}
     for alias, stems in RESOURCE_ALIASES.items():

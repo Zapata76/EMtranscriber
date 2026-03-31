@@ -35,6 +35,7 @@ $args = @(
     # ctranslate2/torch and nested deps import several stdlib modules dynamically in frozen mode.
     "--hidden-import", "ctypes",
     "--hidden-import", "_ctypes",
+    "--hidden-import", "ctypes.util",
     "--hidden-import", "ctypes.wintypes",
     "--hidden-import", "glob",
     "--hidden-import", "ipaddress",
@@ -81,6 +82,7 @@ if ($Profile -eq "ui-shell") {
 } else {
     Write-Host "Building $Name with PyInstaller (full-ml profile)..."
     $args += @(
+        "--exclude-module", "torchcodec",
         "--collect-all", "faster_whisper",
         "--collect-all", "ctranslate2",
         "--collect-all", "pyannote.audio",

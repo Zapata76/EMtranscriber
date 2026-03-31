@@ -110,6 +110,23 @@ function Install-FfmpegPortable {
     }
 }
 
+function Install-PythonWithWinget {
+    $winget = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $winget) {
+        return $false
+    }
+
+    Write-Host "Trying Python install via winget..." -ForegroundColor Cyan
+    & $winget.Source install --id Python.Python.3.11 -e --accept-source-agreements --accept-package-agreements --silent
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "winget install did not complete successfully (exit code: $LASTEXITCODE)." -ForegroundColor Yellow
+        return $false
+    }
+
+    Refresh-SessionPath
+    return $true
+}
+
 function Resolve-PythonCommand {
     $py = Get-Command py -ErrorAction SilentlyContinue
     if ($py) { return @($py.Source, "-m", "pip") }
@@ -122,10 +139,17 @@ function Resolve-PythonCommand {
 
 $pythonCmd = Resolve-PythonCommand
 if (-not $pythonCmd) {
-    Write-Host "Python launcher not found. Install Python 3.10+ and rerun this script." -ForegroundColor Red
-    Write-Host "Press any key to close..."
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    exit 1
+    Write-Host "Python launcher not found. Attempting to install Python..." -ForegroundColor Yellow
+    $pythonInstalled = Install-PythonWithWinget
+    if ($pythonInstalled) {
+        $pythonCmd = Resolve-PythonCommand
+    }
+    if (-not $pythonCmd) {
+        Write-Host "Python installation failed or Python still not found. Install Python 3.10+ manually and rerun this script." -ForegroundColor Red
+        Write-Host "Press any key to close..."
+        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+        exit 1
+    }
 }
 
 if (-not (Test-Path $requirementsPath)) {
