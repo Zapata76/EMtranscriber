@@ -400,7 +400,7 @@ class MainWindow(QMainWindow):
         if not self._ensure_runtime_ready_for_processing(show_dialog=True):
             return
 
-        self._enqueue_job(job_id)
+        self._enqueue_job(job_id, start_immediately=True)
 
     def _on_open_review_selected(self, *_args) -> None:
         job_id = self._selected_job_id()
@@ -566,7 +566,7 @@ class MainWindow(QMainWindow):
                     error_message="Recovered to queue after app restart.",
                 )
 
-    def _enqueue_job(self, job_id: str) -> None:
+    def _enqueue_job(self, job_id: str, start_immediately: bool = False) -> None:
         if job_id in self._active_workers:
             return
 
@@ -588,6 +588,19 @@ class MainWindow(QMainWindow):
 
         self._refresh_jobs(select_job_id=job_id)
         self._update_queue_buttons()
+
+        if start_immediately:
+            if self._queue_machine.snapshot().paused:
+                self._queue_machine.resume()
+                
+            if not self._queue_machine.snapshot().has_active_job:
+                if not self._ensure_runtime_ready_for_processing(show_dialog=False):
+                    self._queue_machine.pause()
+                    self._update_queue_buttons()
+                    return
+                self._start_job_processing(job_id)
+                return
+
         self._start_next_queued_job()
 
     def _start_next_queued_job(self) -> bool:

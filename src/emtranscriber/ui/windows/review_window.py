@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
@@ -201,14 +202,32 @@ class ReviewWindow(QMainWindow):
 
         can_play = self._source_audio_file is not None and self._ensure_audio_backend()
         for row_idx, seg in enumerate(document.segments):
-            play_button = QPushButton(self._tr.t("review.play_button"))
+            buttons_widget = QWidget()
+            buttons_layout = QHBoxLayout(buttons_widget)
+            buttons_layout.setContentsMargins(2, 2, 2, 2)
+            buttons_layout.setSpacing(2)
+
+            play_button = QPushButton()
+            play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+            play_button.setToolTip(self._tr.t("review.play_button"))
             play_button.setEnabled(can_play)
+
+            stop_button = QPushButton()
+            stop_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
+            stop_button.setToolTip(self._tr.t("review.stop_button"))
+            stop_button.setEnabled(can_play)
+
             if can_play:
-                play_button.clicked.connect(lambda _checked=False, start_ms=seg.start_ms: self._play_segment(start_ms))
+                play_button.clicked.connect(lambda _checked=False, start_ms=seg.start_ms, end_ms=seg.end_ms: self._play_segment(start_ms, end_ms))
+                stop_button.clicked.connect(self._stop_playback)
             else:
                 tooltip_key = "review.play_unavailable" if self._source_audio_file is None else "review.play_backend_unavailable"
                 play_button.setToolTip(self._tr.t(tooltip_key))
-            self.segment_table.setCellWidget(row_idx, 0, play_button)
+                stop_button.setToolTip(self._tr.t(tooltip_key))
+
+            buttons_layout.addWidget(play_button)
+            buttons_layout.addWidget(stop_button)
+            self.segment_table.setCellWidget(row_idx, 0, buttons_widget)
 
             start_item = QTableWidgetItem(self._clock(seg.start_ms))
             start_item.setFlags(start_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -372,7 +391,7 @@ class ReviewWindow(QMainWindow):
             return project.name.strip()
         return project_id
 
-    def _play_segment(self, start_ms: int) -> None:
+    def _play_segment(self, start_ms: int, end_ms: int | None = None) -> None:
         if self._source_audio_file is None or not self._ensure_audio_backend():
             return
 
@@ -391,10 +410,10 @@ class ReviewWindow(QMainWindow):
                 self._media_player.stop()
                 self._media_player.setSource(source_url)
                 self._last_played_source = self._source_audio_file
-                QTimer.singleShot(120, lambda: self._start_playback_from(start_ms))
+                QTimer.singleShot(120, lambda: self._start_playback_from(start_ms, end_ms))
                 return
 
-            self._start_playback_from(start_ms)
+            self._start_playback_from(start_ms, end_ms)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(
                 self,
@@ -402,11 +421,18 @@ class ReviewWindow(QMainWindow):
                 self._tr.t("review.play_error_text", error=str(exc)),
             )
 
-    def _start_playback_from(self, start_ms: int) -> None:
+    def _start_playback_from(self, start_ms: int, end_ms: int | None = None) -> None:
         if self._media_player is None:
             return
+        
+        self._playback_end_ms = end_ms
         self._media_player.setPosition(max(int(start_ms), 0))
         self._media_player.play()
+
+    def _stop_playback(self) -> None:
+        if self._media_player is not None:
+            self._media_player.stop()
+            self._playback_end_ms = None
 
     def _ensure_audio_backend(self) -> bool:
         if self._audio_backend_checked:
@@ -421,12 +447,21 @@ class ReviewWindow(QMainWindow):
             self._media_player.setAudioOutput(self._audio_output)
             self._audio_output.setVolume(1.0)
             self._audio_backend_available = True
+            
+            self._playback_end_ms: int | None = None
+            self._media_player.positionChanged.connect(self._on_player_position_changed)
         except Exception:
             self._audio_output = None
             self._media_player = None
             self._audio_backend_available = False
 
         return self._audio_backend_available
+
+    def _on_player_position_changed(self, position_ms: int) -> None:
+        if self._playback_end_ms is not None and position_ms >= self._playback_end_ms:
+            if self._media_player is not None:
+                self._media_player.stop()
+            self._playback_end_ms = None
 
     def _resolve_source_audio_file(self, job: Job | None) -> Path | None:
         if job is None:
@@ -452,9 +487,9 @@ class ReviewWindow(QMainWindow):
 
         if job.created_at is not None and job.source_file_path:
             folder_name = job.created_at.strftime("%Y%m%d_%H%M%S")
-            candidates.append(em_root / "v2" / folder_name)
+            candidates.append(em_root / folder_name)
 
-        candidates.append(em_root / "v2" / job.project_id / job.job_id)
+        candidates.append(em_root / job.project_id / job.job_id)
         candidates.append(root / job.project_id / "jobs" / job.job_id)
         candidates.append(root / job.project_id / job.job_id)
         candidates.append(em_root / job.job_id)
@@ -480,7 +515,17 @@ class ReviewWindow(QMainWindow):
 
         for row_idx in range(self.segment_table.rowCount()):
             widget = self.segment_table.cellWidget(row_idx, 0)
-            if isinstance(widget, QPushButton):
+            if isinstance(widget, QWidget) and widget.layout() is not None:
+                layout = widget.layout()
+                for idx in range(layout.count()):
+                    item = layout.itemAt(idx)
+                    if item and item.widget() and isinstance(item.widget(), QPushButton):
+                        btn = item.widget()
+                        btn.setEnabled(enabled)
+                        # Avoid overwriting Stop button tooltip unless disabled
+                        if not enabled:
+                            btn.setToolTip(tooltip)
+            elif isinstance(widget, QPushButton):
                 widget.setEnabled(enabled)
                 widget.setToolTip(tooltip)
 

@@ -826,11 +826,18 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "fr": 'Play',
     },
     "review.play_button": {
-        "en": 'Play',
-        "it": 'Play',
-        "es": 'Play',
-        "de": 'Play',
-        "fr": 'Play',
+        "en": "Play audio segment",
+        "it": "Riproduci porzione audio",
+        "es": "Reproducir segmento de audio",
+        "fr": "Lire le segment audio",
+        "de": "Audio-Segment abspielen",
+    },
+    "review.stop_button": {
+        "en": "Stop audio playback",
+        "it": "Interrompi riproduzione audio",
+        "es": "Detener reproducción de audio",
+        "fr": "Arrêter la lecture audio",
+        "de": "Audio-Wiedergabe stoppen",
     },
     "review.play_unavailable": {
         "en": 'Source audio in source folder is not available for this job.',
