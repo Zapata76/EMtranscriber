@@ -21,6 +21,7 @@ RESOURCE_ALIASES: dict[str, tuple[str, ...]] = {
     "panic": ("panic",),
     "desperate": ("desperate",),
     "fail": ("fail",),
+    "destruction": ("destruction",),
     "sad": ("sad",),
 }
 

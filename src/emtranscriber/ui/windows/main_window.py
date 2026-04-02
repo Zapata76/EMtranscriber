@@ -54,6 +54,7 @@ _PROCESSING_IMAGE_SEQUENCE = (
     "panic",
     "desperate",
     "fail",
+    "destruction",
 )
 _SUCCESS_FINAL_STATUSES = {
     JobStatus.COMPLETED.value,
@@ -260,6 +261,7 @@ class MainWindow(QMainWindow):
             "panic",
             "desperate",
             "fail",
+            "destruction",
             "sad",
         ):
             pixmap = QPixmap(f":/branding/{key}")

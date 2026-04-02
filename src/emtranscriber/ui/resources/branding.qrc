@@ -1,6 +1,7 @@
 <RCC>
   <qresource prefix="/branding">
     <file alias="desperate">../../../../images/desperate.PNG</file>
+    <file alias="destruction">../../../../images/destruction.png</file>
     <file alias="fail">../../../../images/fail.PNG</file>
     <file alias="icon">_generated_icon.png</file>
     <file alias="panic">../../../../images/panic.PNG</file>

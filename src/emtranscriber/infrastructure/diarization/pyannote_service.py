@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import sys
 import threading
 import time
 import warnings
+import ctypes
+import contextlib
 from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
@@ -15,6 +18,27 @@ from emtranscriber.domain.pipeline.diarization_types import DiarizationResult, S
 from emtranscriber.infrastructure.settings.app_settings import AppSettings
 
 DiarizationProgressCallback = Callable[[str, float | None], None]
+
+
+@contextlib.contextmanager
+def _suppress_win_critical_errors():
+    old_mode = None
+    if sys.platform == "win32":
+        try:
+            # SEM_FAILCRITICALERRORS = 0x0001
+            # SEM_NOGPFAULTERRORBOX = 0x0002
+            # SEM_NOOPENFILEERRORBOX = 0x8000
+            old_mode = ctypes.windll.kernel32.SetErrorMode(0x8003)
+        except Exception:
+            pass
+    try:
+        yield
+    finally:
+        if sys.platform == "win32" and old_mode is not None:
+            try:
+                ctypes.windll.kernel32.SetErrorMode(old_mode)
+            except Exception:
+                pass
 
 
 class _DiarizationProgressState:
@@ -123,8 +147,9 @@ class PyannoteDiarizationService:
             return self._pipeline
 
         try:
-            pyannote_audio = import_module("pyannote.audio")
-            Pipeline = getattr(pyannote_audio, "Pipeline")
+            with _suppress_win_critical_errors():
+                pyannote_audio = import_module("pyannote.audio")
+                Pipeline = getattr(pyannote_audio, "Pipeline")
         except ModuleNotFoundError as exc:
             missing = exc.name or str(exc)
             if missing in {"pyannote", "pyannote.audio"}:
@@ -142,6 +167,13 @@ class PyannoteDiarizationService:
         token = self._settings.huggingface_token
         kwargs = {"token": token} if token else {}
 
+        device_used = job.device_used or "auto"
+        self._logger.debug(
+            "Loading diarization pipeline: source=%s, device=%s",
+            model_source,
+            device_used,
+        )
+
         self._emit_progress(on_progress, f"Loading diarization model source '{model_source}'", 0.15)
         self._prepare_download_runtime()
         model_load_stop = threading.Event()
@@ -152,7 +184,8 @@ class PyannoteDiarizationService:
         )
         model_load_thread.start()
         try:
-            self._pipeline = Pipeline.from_pretrained(model_source, **kwargs)
+            with _suppress_win_critical_errors():
+                self._pipeline = Pipeline.from_pretrained(model_source, **kwargs)
         except Exception as exc:  # noqa: BLE001
             message = str(exc)
             if "gated" in message.lower() or "401" in message.lower() or "access to model" in message.lower():
@@ -164,10 +197,13 @@ class PyannoteDiarizationService:
             model_load_stop.set()
             model_load_thread.join(timeout=0.5)
 
+        self._logger.debug("Diarization pipeline loaded: %s", model_source)
+
         if job.device_used == "gpu":
             try:
-                torch = import_module("torch")
-                self._pipeline.to(torch.device("cuda"))
+                with _suppress_win_critical_errors():
+                    torch = import_module("torch")
+                    self._pipeline.to(torch.device("cuda"))
                 self._emit_progress(on_progress, "Diarization pipeline moved to CUDA", 0.2)
             except Exception:  # noqa: BLE001
                 self._logger.warning("GPU requested for diarization but CUDA is not available. Falling back to CPU.")
@@ -179,6 +215,21 @@ class PyannoteDiarizationService:
         if self._settings.pyannote_model_path:
             return self._settings.pyannote_model_path
         return "pyannote/speaker-diarization-community-1"
+
+    def release_resources(self) -> None:
+        had_pipeline = self._pipeline is not None
+        self._pipeline = None
+
+        try:
+            torch = import_module("torch")
+            cuda = getattr(torch, "cuda", None)
+            if cuda is not None and callable(getattr(cuda, "is_available", None)) and cuda.is_available():
+                cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
+
+        gc.collect()
+        self._logger.info("Diarization resources released (cached_pipeline=%s)", had_pipeline)
 
     def _build_pipeline_input(
         self,
@@ -198,28 +249,22 @@ class PyannoteDiarizationService:
         decode_errors: list[str] = []
 
         try:
-            waveform, sample_rate = self._decode_audio_with_faster_whisper(audio_path)
-            backend = "faster-whisper"
-        except Exception as exc_fw:  # noqa: BLE001
-            decode_errors.append(f"faster-whisper: {exc_fw}")
-            self._logger.warning("faster-whisper fallback decoding failed for %s: %s", audio_path, exc_fw)
+            waveform, sample_rate = self._decode_audio_with_wave(audio_path)
+            backend = "wave"
+        except Exception as exc_wave:  # noqa: BLE001
+            decode_errors.append(f"wave: {exc_wave}")
+            self._logger.warning("wave fallback decoding failed for %s: %s", audio_path, exc_wave)
             try:
                 waveform, sample_rate = self._decode_audio_with_torchaudio(audio_path)
                 backend = "torchaudio"
             except Exception as exc_ta:  # noqa: BLE001
                 decode_errors.append(f"torchaudio: {exc_ta}")
-                self._logger.warning("torchaudio fallback decoding failed for %s: %s", audio_path, exc_ta)
-                try:
-                    waveform, sample_rate = self._decode_audio_with_wave(audio_path)
-                    backend = "wave"
-                except Exception as exc_wave:  # noqa: BLE001
-                    decode_errors.append(f"wave: {exc_wave}")
-                    details = " | ".join(decode_errors)
-                    raise RuntimeError(
-                        "Unable to decode audio for diarization fallback. "
-                        "Install FFmpeg/TorchCodec dependencies or use a full ML runtime. "
-                        f"Decoding backends tried: {details}"
-                    ) from exc_wave
+                details = " | ".join(decode_errors)
+                raise RuntimeError(
+                    "Unable to decode audio for diarization fallback. "
+                    "Install FFmpeg/TorchCodec dependencies or use a full ML runtime. "
+                    f"Decoding backends tried: {details}"
+                ) from exc_ta
 
         duration_s = 0.0
         try:
@@ -234,29 +279,33 @@ class PyannoteDiarizationService:
                 f"Loaded fallback waveform via {backend} ({self._format_seconds(duration_s)})",
                 0.24,
             )
+        self._logger.info("Diarization fallback decoder selected: %s", backend)
 
         return {"waveform": waveform, "sample_rate": int(sample_rate), "uri": audio_path.stem}
 
     @staticmethod
     def _decode_audio_with_faster_whisper(audio_path: Path):
-        fw_audio = import_module("faster_whisper.audio")
-        decode_audio = getattr(fw_audio, "decode_audio")
-        audio_np = decode_audio(str(audio_path), sampling_rate=16000, split_stereo=False)
+        with _suppress_win_critical_errors():
+            fw_audio = import_module("faster_whisper.audio")
+            decode_audio = getattr(fw_audio, "decode_audio")
+            audio_np = decode_audio(str(audio_path), sampling_rate=16000, split_stereo=False)
 
-        torch = import_module("torch")
-        waveform = torch.from_numpy(audio_np).unsqueeze(0)
-        return waveform, 16000
+            torch = import_module("torch")
+            waveform = torch.from_numpy(audio_np).unsqueeze(0)
+            return waveform, 16000
 
     @staticmethod
     def _decode_audio_with_torchaudio(audio_path: Path):
-        torchaudio = import_module("torchaudio")
-        return torchaudio.load(str(audio_path))
+        with _suppress_win_critical_errors():
+            torchaudio = import_module("torchaudio")
+            return torchaudio.load(str(audio_path))
 
     @staticmethod
     def _decode_audio_with_wave(audio_path: Path):
         import wave
 
-        torch = import_module("torch")
+        with _suppress_win_critical_errors():
+            torch = import_module("torch")
 
         with wave.open(str(audio_path), "rb") as wav_file:
             if wav_file.getcomptype() != "NONE":
@@ -286,14 +335,14 @@ class PyannoteDiarizationService:
         waveform = samples.reshape(-1, channels).transpose(0, 1).contiguous()
         return waveform, sample_rate
 
-    @staticmethod
-    def _has_torchcodec_decoder() -> bool:
+    def _has_torchcodec_decoder(self) -> bool:
         try:
-            with warnings.catch_warnings():
+            with _suppress_win_critical_errors(), warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 io_module = import_module("pyannote.audio.core.io")
             return hasattr(io_module, "AudioDecoder")
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
+            self._logger.warning("TorchCodec decoder unavailable (fallback will be used): %s", exc)
             return False
 
     @staticmethod
