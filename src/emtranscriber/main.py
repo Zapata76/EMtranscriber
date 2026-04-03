@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -56,10 +58,84 @@ def _register_branding_resources() -> tuple[bool, list[Path]]:
     return False, candidates
 
 
-def main() -> int:
+def _emit_worker_event(payload: dict) -> None:
+    print(json.dumps(payload, ensure_ascii=False), flush=True)
+
+
+def _run_headless_job(job_id: str) -> int:
     _ensure_console_streams()
 
-    app = QApplication(sys.argv)
+    try:
+        container = build_container()
+    except Exception as exc:  # noqa: BLE001
+        _emit_worker_event(
+            {
+                "type": "error",
+                "message": f"Failed to initialize worker runtime: {exc}",
+            }
+        )
+        return 1
+
+    def on_progress(status, message: str, percent: int) -> None:
+        status_value = getattr(status, "value", str(status))
+        try:
+            safe_percent = int(percent)
+        except (TypeError, ValueError):
+            safe_percent = 0
+        safe_percent = max(0, min(100, safe_percent))
+        _emit_worker_event(
+            {
+                "type": "progress",
+                "status": status_value,
+                "message": message,
+                "percent": safe_percent,
+            }
+        )
+
+    try:
+        final_status = container.orchestrator.process_job(job_id, on_progress=on_progress)
+    except Exception as exc:  # noqa: BLE001
+        _emit_worker_event(
+            {
+                "type": "error",
+                "message": str(exc),
+            }
+        )
+        return 2
+
+    _emit_worker_event(
+        {
+            "type": "finished",
+            "status": final_status.value,
+        }
+    )
+    return 0
+
+
+def _parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(prog="emtranscriber")
+    parser.add_argument(
+        "--run-job",
+        dest="run_job",
+        type=str,
+        default=None,
+        help="Run a single transcription job in headless worker mode and exit.",
+    )
+    args, _unknown = parser.parse_known_args(argv[1:])
+    return args
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv
+
+    args = _parse_args(argv)
+    if args.run_job:
+        return _run_headless_job(args.run_job)
+
+    _ensure_console_streams()
+
+    app = QApplication(argv)
     loaded, candidates = _register_branding_resources()
     if not loaded:
         QMessageBox.critical(
@@ -118,4 +194,4 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(sys.argv))

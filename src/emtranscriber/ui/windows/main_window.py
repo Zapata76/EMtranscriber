@@ -714,7 +714,7 @@ class MainWindow(QMainWindow):
         if self._active_workers:
             return
 
-        worker = JobProcessingWorker(self._container.orchestrator, job_id)
+        worker = JobProcessingWorker(self._container.job_repository, job_id)
         job = self._jobs_cache_by_id.get(job_id)
         hints = self._container.job_repository.get_context_hints(job_id) if job is not None else None
         initial_log_lines = self._build_processing_log_header(job, hints)

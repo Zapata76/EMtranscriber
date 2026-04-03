@@ -130,14 +130,21 @@ EMtranscriber is released under the **GNU General Public License v3.0 (GPL-3.0)*
 ```powershell
 python -m pip install --user -e .[build] --no-build-isolation
 python -m pip install --user -r requirements-ml.txt
-python scripts/prepare_branding_assets.py --icon-source "C:\\path\\to\\icon-image.png" --sidebar-source "C:\\path\\to\\sidebar-image.jpg"
 .\\scripts\\build_windows.ps1 -Profile full-ml
 ```
 
 Available build profiles:
 
 - `full-ml` (recommended): bundles ML dependencies into the app package.
-- `ui-shell`: keeps a lighter package and loads ML runtime from local Python site-packages (for example `%APPDATA%\Python\Python310\site-packages`).
+- `ui-shell`: keeps a lighter package and loads ML runtime from local Python site-packages (for example `%APPDATA%\\Python\\Python3xx\\site-packages`).
+
+During build, `scripts/build_windows.ps1` automatically runs `scripts/sync_branding_resources.py` to:
+
+- regenerate `packaging/assets/emtranscriber.ico`
+- regenerate `src/emtranscriber/ui/resources/branding.qrc`
+- regenerate `src/emtranscriber/ui/resources/branding.rcc`
+
+If source images/config are unchanged, branding regeneration is skipped automatically.
 
 Example for `ui-shell`:
 
@@ -146,5 +153,21 @@ Example for `ui-shell`:
 ```
 
 PyInstaller output is generated in `dist\EMtranscriber`.
+
+## Headless job worker mode (internal)
+
+The app supports running a single job in isolated/headless mode:
+
+```powershell
+python -m emtranscriber.main --run-job <job_id>
+```
+
+In packaged builds:
+
+```powershell
+.\dist\EMtranscriber\EMtranscriber.exe --run-job <job_id>
+```
+
+The worker writes JSON-line events to stdout (`progress`, `finished`, `error`) and exits with a non-zero code on failure.
 
 
