@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from dataclasses import dataclass
@@ -91,9 +92,13 @@ def _build_pipeline_services(settings: AppSettings, logger, use_stub_pipeline: b
 
         logger.warning("Real pipeline modules are unavailable (%s). Falling back to stubs.", exc)
         return FasterWhisperServiceStub(), PyannoteDiarizationServiceStub(), True
-    except Exception:
-        logger.exception("Failed to build real pipeline services. Falling back to stubs.")
-        return FasterWhisperServiceStub(), PyannoteDiarizationServiceStub(), True
+    except Exception as exc:
+        logger.exception("Failed to build real pipeline services.")
+        raise RuntimeError(
+            "Failed to initialize real transcription pipeline. "
+            "Check ML runtime dependencies/configuration or enable explicit stub mode "
+            "with EMTRANSCRIBER_ALLOW_STUB_PIPELINE=1."
+        ) from exc
 
 
 def _is_frozen_app() -> bool:
@@ -261,6 +266,7 @@ def _register_dll_directories(site_packages_path: Path, logger) -> None:
 
 
 def build_container() -> AppContainer:
+    logger: logging.Logger | None = None
     try:
         app_paths = get_app_paths()
         settings_file_existed = app_paths.settings_file.exists()
@@ -360,5 +366,10 @@ def build_container() -> AppContainer:
         logger.info("Application container built successfully")
         return container
     except Exception:
-        logger.exception("Failed to build application container")
+        if logger is not None:
+            logger.exception("Failed to build application container")
+        else:
+            logging.getLogger("emtranscriber").exception(
+                "Failed to build application container before logger initialization"
+            )
         raise

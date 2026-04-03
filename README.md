@@ -131,11 +131,19 @@ EMtranscriber is released under the **GNU General Public License v3.0 (GPL-3.0)*
 python -m pip install --user -e .[build] --no-build-isolation
 python -m pip install --user -r requirements-ml.txt
 python scripts/prepare_branding_assets.py --icon-source "C:\\path\\to\\icon-image.png" --sidebar-source "C:\\path\\to\\sidebar-image.jpg"
-.\\scripts\\build_windows.ps1 -Profile ui-shell
+.\\scripts\\build_windows.ps1 -Profile full-ml
 ```
 
-`ui-shell` now builds an executable that uses the **real** pipeline adapters and can transcribe audio,
-loading ML runtime packages from local Python site-packages (for example `%APPDATA%\Python\Python310\site-packages`).
+Available build profiles:
+
+- `full-ml` (recommended): bundles ML dependencies into the app package.
+- `ui-shell`: keeps a lighter package and loads ML runtime from local Python site-packages (for example `%APPDATA%\Python\Python310\site-packages`).
+
+Example for `ui-shell`:
+
+```powershell
+.\\scripts\\build_windows.ps1 -Profile ui-shell
+```
 
 PyInstaller output is generated in `dist\EMtranscriber`.
 

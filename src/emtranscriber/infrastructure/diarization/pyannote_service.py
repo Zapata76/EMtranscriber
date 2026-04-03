@@ -247,24 +247,37 @@ class PyannoteDiarizationService:
         )
 
         decode_errors: list[str] = []
-
-        try:
-            waveform, sample_rate = self._decode_audio_with_wave(audio_path)
-            backend = "wave"
-        except Exception as exc_wave:  # noqa: BLE001
-            decode_errors.append(f"wave: {exc_wave}")
-            self._logger.warning("wave fallback decoding failed for %s: %s", audio_path, exc_wave)
+        waveform = None
+        sample_rate = None
+        backend = None
+        # NOTE:
+        # `faster-whisper` decoder can trigger native heap instability on some Windows runtimes
+        # when used in diarization fallback path. Prefer safer backends here.
+        decoders = (
+            ("torchaudio", self._decode_audio_with_torchaudio),
+            ("wave", self._decode_audio_with_wave),
+        )
+        for backend_name, decoder in decoders:
             try:
-                waveform, sample_rate = self._decode_audio_with_torchaudio(audio_path)
-                backend = "torchaudio"
-            except Exception as exc_ta:  # noqa: BLE001
-                decode_errors.append(f"torchaudio: {exc_ta}")
-                details = " | ".join(decode_errors)
-                raise RuntimeError(
-                    "Unable to decode audio for diarization fallback. "
-                    "Install FFmpeg/TorchCodec dependencies or use a full ML runtime. "
-                    f"Decoding backends tried: {details}"
-                ) from exc_ta
+                waveform, sample_rate = decoder(audio_path)
+                backend = backend_name
+                break
+            except Exception as exc:  # noqa: BLE001
+                decode_errors.append(f"{backend_name}: {exc}")
+                self._logger.warning(
+                    "Fallback decoder '%s' failed for %s: %s",
+                    backend_name,
+                    audio_path,
+                    exc,
+                )
+
+        if backend is None:
+            details = " | ".join(decode_errors)
+            raise RuntimeError(
+                "Unable to decode audio for diarization fallback. "
+                "Install FFmpeg/TorchCodec dependencies or use a full ML runtime. "
+                f"Decoding backends tried: {details}"
+            )
 
         duration_s = 0.0
         try:
@@ -302,6 +315,7 @@ class PyannoteDiarizationService:
 
     @staticmethod
     def _decode_audio_with_wave(audio_path: Path):
+        import array
         import wave
 
         with _suppress_win_critical_errors():
@@ -320,17 +334,33 @@ class PyannoteDiarizationService:
         if channels <= 0 or frame_count <= 0:
             raise RuntimeError("empty waveform")
 
+        total_samples = frame_count * channels
         if sample_width == 1:
-            samples = torch.frombuffer(memoryview(payload), dtype=torch.uint8).clone().to(torch.float32)
+            sample_array = array.array("B")
+            sample_array.frombytes(payload)
+            samples = torch.tensor(sample_array, dtype=torch.float32)
             samples = (samples - 128.0) / 128.0
         elif sample_width == 2:
-            samples = torch.frombuffer(memoryview(payload), dtype=torch.int16).clone().to(torch.float32)
+            sample_array = array.array("h")
+            sample_array.frombytes(payload)
+            if sys.byteorder != "little":
+                sample_array.byteswap()
+            samples = torch.tensor(sample_array, dtype=torch.float32)
             samples = samples / 32768.0
         elif sample_width == 4:
-            samples = torch.frombuffer(memoryview(payload), dtype=torch.int32).clone().to(torch.float32)
+            sample_array = array.array("i")
+            sample_array.frombytes(payload)
+            if sys.byteorder != "little":
+                sample_array.byteswap()
+            samples = torch.tensor(sample_array, dtype=torch.float32)
             samples = samples / 2147483648.0
         else:
             raise RuntimeError(f"unsupported WAV sample width: {sample_width}")
+
+        if int(samples.numel()) != total_samples:
+            raise RuntimeError(
+                f"decoded sample count mismatch: expected {total_samples}, got {int(samples.numel())}"
+            )
 
         waveform = samples.reshape(-1, channels).transpose(0, 1).contiguous()
         return waveform, sample_rate

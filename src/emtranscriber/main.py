@@ -2,14 +2,15 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
+from PySide6.QtCore import QResource
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from emtranscriber.bootstrap import build_container
 from emtranscriber.shared.i18n import detect_system_language
 from emtranscriber.shared.theme import apply_theme
-from emtranscriber.ui.resources import branding_rc  # noqa: F401
 from emtranscriber.ui.windows.main_window import MainWindow
 
 
@@ -21,10 +22,53 @@ def _ensure_console_streams() -> None:
         sys.stderr = open(os.devnull, "w", encoding="utf-8")
 
 
+def _branding_rcc_candidates() -> list[Path]:
+    module_resources = Path(__file__).resolve().parent / "ui" / "resources" / "branding.rcc"
+    candidates: list[Path] = [module_resources]
+
+    if getattr(sys, "frozen", False):
+        exe_dir = Path(sys.executable).resolve().parent
+        candidates = [
+            exe_dir / "emtranscriber" / "ui" / "resources" / "branding.rcc",
+            exe_dir / "_internal" / "emtranscriber" / "ui" / "resources" / "branding.rcc",
+            exe_dir / "branding.rcc",
+            *candidates,
+        ]
+
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped
+
+
+def _register_branding_resources() -> tuple[bool, list[Path]]:
+    candidates = _branding_rcc_candidates()
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        if QResource.registerResource(str(candidate)):
+            return True, candidates
+    return False, candidates
+
+
 def main() -> int:
     _ensure_console_streams()
 
     app = QApplication(sys.argv)
+    loaded, candidates = _register_branding_resources()
+    if not loaded:
+        QMessageBox.critical(
+            None,
+            "EMtranscriber startup error",
+            "Unable to load UI branding resources.\n\nSearched paths:\n"
+            + "\n".join(str(path) for path in candidates),
+        )
+        return 1
 
     app_icon = QIcon(":/branding/icon")
     if not app_icon.isNull():

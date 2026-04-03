@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('migrations', 'migrations'), ('LICENSE', '.'), ('requirements-ml.txt', '.'), ('scripts/install_ml_runtime.ps1', '.')]
+datas = [('migrations', 'migrations'), ('src/emtranscriber/ui/resources/branding.rcc', 'emtranscriber/ui/resources'), ('LICENSE', '.'), ('requirements-ml.txt', '.'), ('scripts/install_ml_runtime.ps1', '.')]
 binaries = []
 hiddenimports = ['emtranscriber.infrastructure.asr.faster_whisper_service', 'emtranscriber.infrastructure.diarization.pyannote_service', 'ctypes', '_ctypes', 'ctypes.util', 'ctypes.wintypes', 'glob', 'ipaddress', 'configparser', 'sysconfig', 'http', 'http.cookies', 'xml', 'xml.etree', 'xml.etree.ElementTree', 'xml.parsers', 'xml.parsers.expat', 'timeit', 'importlib.resources', 'importlib.metadata', 'asyncio', 'asyncio.base_events', 'asyncio.coroutines']
 hiddenimports += collect_submodules('importlib')

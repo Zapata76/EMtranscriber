@@ -6,6 +6,7 @@ import logging
 import os
 import shutil
 import time
+from ctypes import wintypes
 from collections.abc import Callable
 from pathlib import Path
 
@@ -26,6 +27,10 @@ class JobCancelledError(RuntimeError):
 
 
 class TranscriptionOrchestrator:
+    _DEFAULT_MEMORY_GUARD_PRIVATE_MB = 4500.0
+    _DEFAULT_MEMORY_GUARD_TRIM_WS = True
+    _DEFAULT_MEMORY_GUARD_RELEASE_DIARIZATION = False
+
     def __init__(
         self,
         job_repository: JobRepository,
@@ -48,6 +53,28 @@ class TranscriptionOrchestrator:
         self._exporter = exporter
         self._logger = logger
         self._cancelled_jobs: set[str] = set()
+        self._memory_guard_enabled = self._parse_bool_env("EMTRANSCRIBER_MEMORY_GUARD_ENABLED", default=True)
+        self._memory_guard_private_mb_threshold = self._parse_float_env(
+            "EMTRANSCRIBER_MEMORY_GUARD_PRIVATE_MB",
+            default=self._DEFAULT_MEMORY_GUARD_PRIVATE_MB,
+            minimum=512.0,
+        )
+        self._memory_guard_trim_working_set = self._parse_bool_env(
+            "EMTRANSCRIBER_MEMORY_GUARD_TRIM_WS",
+            default=self._DEFAULT_MEMORY_GUARD_TRIM_WS,
+        )
+        self._memory_guard_release_diarization = self._parse_bool_env(
+            "EMTRANSCRIBER_MEMORY_GUARD_RELEASE_DIARIZATION",
+            default=self._DEFAULT_MEMORY_GUARD_RELEASE_DIARIZATION,
+        )
+        self._logger.info(
+            "Runtime memory guard configured | enabled=%s | private_threshold_mb=%.1f | trim_working_set=%s "
+            "| release_diarization=%s",
+            self._memory_guard_enabled,
+            self._memory_guard_private_mb_threshold,
+            self._memory_guard_trim_working_set,
+            self._memory_guard_release_diarization,
+        )
 
     def cancel(self, job_id: str) -> None:
         self._cancelled_jobs.add(job_id)
@@ -60,6 +87,7 @@ class TranscriptionOrchestrator:
 
         self._logger.info("Job started: %s", job_id)
         self._log_runtime_snapshot(job_id, "job-start")
+        self._run_pre_job_memory_guard(job_id)
 
         diarization_error: Exception | None = None
         using_stub_pipeline = False
@@ -389,9 +417,47 @@ class TranscriptionOrchestrator:
 
     def _release_runtime_resources(self, job_id: str) -> None:
         self._release_service_resources(job_id, "asr", self._asr_service, reason="job-finalize")
-        # Keep diarization pipeline cached for the whole session.
-        # Re-loading pyannote/torchcodec between queued jobs is currently unstable on some Windows runtimes.
+
+        release_diarization = False
+        rss_mb, private_mb = self._read_process_memory_mb()
+        if self._memory_guard_enabled and private_mb is not None and private_mb >= self._memory_guard_private_mb_threshold:
+            if self._memory_guard_release_diarization:
+                release_diarization = True
+                self._logger.warning(
+                    "Runtime memory guard: high private memory before finalize cleanup "
+                    "(job=%s, private_mb=%.1f, threshold_mb=%.1f). Releasing diarization cache.",
+                    job_id,
+                    private_mb,
+                    self._memory_guard_private_mb_threshold,
+                )
+            else:
+                self._logger.warning(
+                    "Runtime memory guard: high private memory before finalize cleanup "
+                    "(job=%s, private_mb=%.1f, threshold_mb=%.1f), but diarization cache release is disabled.",
+                    job_id,
+                    private_mb,
+                    self._memory_guard_private_mb_threshold,
+                )
+
+        if release_diarization:
+            self._release_service_resources(
+                job_id,
+                "diarization",
+                self._diarization_service,
+                reason="job-finalize-memory-guard",
+            )
+        else:
+            self._logger.debug(
+                "Runtime memory guard: keeping diarization pipeline cached "
+                "(job=%s, rss_mb=%s, private_mb=%s)",
+                job_id,
+                f"{rss_mb:.1f}" if rss_mb is not None else "n/a",
+                f"{private_mb:.1f}" if private_mb is not None else "n/a",
+            )
+
         gc.collect()
+        if self._memory_guard_enabled and self._memory_guard_trim_working_set:
+            self._trim_process_working_set()
 
     def _release_service_resources(self, job_id: str, service_name: str, service: object, *, reason: str) -> None:
         release_resources = getattr(service, "release_resources", None)
@@ -439,8 +505,8 @@ class TranscriptionOrchestrator:
         try:
             class PROCESS_MEMORY_COUNTERS_EX(ctypes.Structure):
                 _fields_ = [
-                    ("cb", ctypes.c_ulong),
-                    ("PageFaultCount", ctypes.c_ulong),
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
                     ("PeakWorkingSetSize", ctypes.c_size_t),
                     ("WorkingSetSize", ctypes.c_size_t),
                     ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
@@ -455,8 +521,17 @@ class TranscriptionOrchestrator:
             counters = PROCESS_MEMORY_COUNTERS_EX()
             counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS_EX)
 
-            kernel32 = ctypes.windll.kernel32
-            psapi = ctypes.windll.psapi
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.GetProcessMemoryInfo.argtypes = [
+                wintypes.HANDLE,
+                ctypes.POINTER(PROCESS_MEMORY_COUNTERS_EX),
+                wintypes.DWORD,
+            ]
+            psapi.GetProcessMemoryInfo.restype = wintypes.BOOL
+
             process_handle = kernel32.GetCurrentProcess()
 
             ok = psapi.GetProcessMemoryInfo(
@@ -464,7 +539,7 @@ class TranscriptionOrchestrator:
                 ctypes.byref(counters),
                 counters.cb,
             )
-            if not ok:
+            if not bool(ok):
                 return None, None
 
             to_mb = float(1024 * 1024)
@@ -473,3 +548,74 @@ class TranscriptionOrchestrator:
             return rss_mb, private_mb
         except Exception:  # noqa: BLE001
             return None, None
+
+    def _run_pre_job_memory_guard(self, job_id: str) -> None:
+        if not self._memory_guard_enabled:
+            return
+
+        rss_mb, private_mb = self._read_process_memory_mb()
+        if private_mb is None or private_mb < self._memory_guard_private_mb_threshold:
+            return
+
+        self._logger.warning(
+            "Runtime memory guard: high private memory before job start "
+            "(job=%s, rss_mb=%s, private_mb=%.1f, threshold_mb=%.1f). Running aggressive cleanup.",
+            job_id,
+            f"{rss_mb:.1f}" if rss_mb is not None else "n/a",
+            private_mb,
+            self._memory_guard_private_mb_threshold,
+        )
+        self._release_service_resources(job_id, "asr", self._asr_service, reason="pre-job-memory-guard")
+        if self._memory_guard_release_diarization:
+            self._release_service_resources(
+                job_id,
+                "diarization",
+                self._diarization_service,
+                reason="pre-job-memory-guard",
+            )
+        else:
+            self._logger.warning(
+                "Runtime memory guard: pre-job cleanup skipped diarization release (disabled by configuration)."
+            )
+        gc.collect()
+        if self._memory_guard_trim_working_set:
+            self._trim_process_working_set()
+        self._log_runtime_snapshot(job_id, "pre-job-memory-guard")
+
+    def _trim_process_working_set(self) -> None:
+        if os.name != "nt":
+            return
+
+        try:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            psapi = ctypes.WinDLL("psapi", use_last_error=True)
+
+            kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+            psapi.EmptyWorkingSet.argtypes = [wintypes.HANDLE]
+            psapi.EmptyWorkingSet.restype = wintypes.BOOL
+
+            process_handle = kernel32.GetCurrentProcess()
+            ok = bool(psapi.EmptyWorkingSet(process_handle))
+            self._logger.debug("Runtime memory guard: EmptyWorkingSet invoked (ok=%s)", ok)
+        except Exception as exc:  # noqa: BLE001
+            self._logger.debug("Runtime memory guard: EmptyWorkingSet failed: %s", exc)
+
+    @staticmethod
+    def _parse_bool_env(name: str, *, default: bool) -> bool:
+        raw_value = os.getenv(name)
+        if raw_value is None:
+            return default
+        return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _parse_float_env(name: str, *, default: float, minimum: float) -> float:
+        raw_value = os.getenv(name)
+        if raw_value is None:
+            return default
+        try:
+            parsed = float(raw_value.strip())
+        except (TypeError, ValueError):
+            return default
+        if parsed < minimum:
+            return minimum
+        return parsed
