@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 
 
-DEFAULT_ANALYSIS_ENDPOINT = "https://api.openai.com/v1/chat/completions"
 SUPPORTED_UI_THEMES = {"light", "dark"}
 
 
@@ -18,15 +17,6 @@ class AppSettings:
 
     ui_language: str | None = None
     ui_theme: str = "dark"
-
-    ai_analysis_enabled: bool = False
-    ai_analysis_provider: str = "disabled"
-    ai_analysis_endpoint: str = DEFAULT_ANALYSIS_ENDPOINT
-    ai_analysis_api_key: str | None = None
-    ai_analysis_model: str | None = None
-    ai_analysis_default_template: str = "meeting-summary"
-    ai_analysis_default_prompt: str = ""
-    ai_analysis_output_language: str | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -45,23 +35,7 @@ class AppSettings:
             huggingface_token=payload.get("huggingface_token"),
             ui_language=ui_language,
             ui_theme=_normalize_ui_theme(payload.get("ui_theme")),
-            ai_analysis_enabled=_to_bool(payload.get("ai_analysis_enabled", False)),
-            ai_analysis_provider=payload.get("ai_analysis_provider", "disabled"),
-            ai_analysis_endpoint=payload.get("ai_analysis_endpoint", DEFAULT_ANALYSIS_ENDPOINT),
-            ai_analysis_api_key=payload.get("ai_analysis_api_key"),
-            ai_analysis_model=payload.get("ai_analysis_model"),
-            ai_analysis_default_template=payload.get("ai_analysis_default_template", "meeting-summary"),
-            ai_analysis_default_prompt=payload.get("ai_analysis_default_prompt", ""),
-            ai_analysis_output_language=payload.get("ai_analysis_output_language"),
         )
-
-
-def _to_bool(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, str):
-        return value.strip().lower() in {"1", "true", "yes", "on"}
-    return bool(value)
 
 
 def _normalize_ui_theme(value: str | None) -> str:

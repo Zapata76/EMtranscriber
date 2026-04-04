@@ -8,7 +8,6 @@ from importlib import import_module
 from pathlib import Path
 
 from emtranscriber.application.services.transcription_orchestrator import TranscriptionOrchestrator
-from emtranscriber.application.use_cases.analyze_transcript import AnalyzeTranscriptUseCase
 from emtranscriber.application.use_cases.create_job import CreateJobUseCase
 from emtranscriber.application.use_cases.export_transcript import ExportTranscriptUseCase
 from emtranscriber.application.use_cases.get_transcript_document import GetTranscriptDocumentUseCase
@@ -17,7 +16,6 @@ from emtranscriber.application.use_cases.rename_speaker import RenameSpeakerUseC
 from emtranscriber.application.use_cases.update_segment_text import UpdateSegmentTextUseCase
 from emtranscriber.domain.alignment.speaker_aligner import SpeakerAligner
 from emtranscriber.domain.exports.transcript_exporter import TranscriptExporter
-from emtranscriber.infrastructure.ai_analysis.provider_factory import build_analysis_provider
 from emtranscriber.infrastructure.asr.faster_whisper_service_stub import FasterWhisperServiceStub
 from emtranscriber.infrastructure.audio.audio_normalizer import AudioNormalizer
 from emtranscriber.infrastructure.diarization.pyannote_service_stub import PyannoteDiarizationServiceStub
@@ -56,7 +54,6 @@ class AppContainer:
     rename_speaker_use_case: RenameSpeakerUseCase
     update_segment_text_use_case: UpdateSegmentTextUseCase
     export_transcript_use_case: ExportTranscriptUseCase
-    analyze_transcript_use_case: AnalyzeTranscriptUseCase
     orchestrator: TranscriptionOrchestrator
 
 
@@ -314,15 +311,6 @@ def build_container() -> AppContainer:
         )
         logger.debug("Export use case initialized")
 
-        analyze_transcript_use_case = AnalyzeTranscriptUseCase(
-            job_repository=job_repository,
-            transcript_repository=transcript_repository,
-            artifact_store=artifact_store,
-            exporter=exporter,
-            provider_factory=lambda: build_analysis_provider(settings, logger),
-        )
-        logger.debug("Analysis use case initialized")
-
         use_stub_pipeline = os.getenv("EMTRANSCRIBER_ALLOW_STUB_PIPELINE") == "1"
         asr_service, diarization_service, pipeline_is_stub = _build_pipeline_services(
             settings,
@@ -360,7 +348,6 @@ def build_container() -> AppContainer:
             rename_speaker_use_case=rename_speaker_use_case,
             update_segment_text_use_case=update_segment_text_use_case,
             export_transcript_use_case=export_transcript_use_case,
-            analyze_transcript_use_case=analyze_transcript_use_case,
             orchestrator=orchestrator,
         )
         logger.info("Application container built successfully")

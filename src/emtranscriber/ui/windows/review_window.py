@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QThreadPool, Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -20,13 +20,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from emtranscriber.application.dto.analysis_run_result import AnalysisRunResult
-from emtranscriber.application.workers.analysis_worker import AnalysisWorker
 from emtranscriber.bootstrap import AppContainer
 from emtranscriber.domain.entities.job import Job
 from emtranscriber.domain.entities.job_context_hints import JobContextHints
 from emtranscriber.domain.entities.transcript_document import TranscriptDocument
-from emtranscriber.ui.dialogs.analysis_dialog import AnalysisDialog
 
 
 class ReviewWindow(QMainWindow):
@@ -35,8 +32,6 @@ class ReviewWindow(QMainWindow):
         self._container = container
         self._tr = container.translator
         self._job_id = job_id
-        self._thread_pool = QThreadPool.globalInstance()
-        self._analysis_worker: AnalysisWorker | None = None
         self._original_segment_text_by_id: dict[str, str] = {}
         self._original_speaker_name_by_key: dict[str, str] = {}
 
@@ -75,10 +70,6 @@ class ReviewWindow(QMainWindow):
         export_btn = QPushButton(self._tr.t("review.reexport"))
         export_btn.clicked.connect(self._export)
         toolbar.addWidget(export_btn)
-
-        self.analyze_btn = QPushButton(self._tr.t("review.analyze"))
-        self.analyze_btn.clicked.connect(self._on_analyze)
-        toolbar.addWidget(self.analyze_btn)
 
         toolbar.addStretch(1)
         self.status_label = QLabel("")
@@ -318,72 +309,6 @@ class ReviewWindow(QMainWindow):
         outputs = self._container.export_transcript_use_case.execute(self._job_id)
         export_lines = "\n".join(f"{fmt}: {path}" for fmt, path in outputs.items())
         QMessageBox.information(self, self._tr.t("review.export_done"), export_lines)
-
-    def _on_analyze(self) -> None:
-        if self._analysis_worker is not None:
-            QMessageBox.information(
-                self,
-                self._tr.t("review.analysis_busy_title"),
-                self._tr.t("review.analysis_busy_text"),
-            )
-            return
-
-        if not self._container.settings.ai_analysis_enabled:
-            QMessageBox.information(
-                self,
-                self._tr.t("review.analysis_disabled_title"),
-                self._tr.t("review.analysis_disabled_text"),
-            )
-            return
-
-        dialog = AnalysisDialog(self._container.settings, self._tr, self)
-        if dialog.exec() != AnalysisDialog.DialogCode.Accepted:
-            return
-
-        options = dialog.build_options()
-
-        self.analyze_btn.setEnabled(False)
-        self.status_label.setText(self._tr.t("review.analysis_running"))
-
-        worker = AnalysisWorker(
-            self._container.analyze_transcript_use_case,
-            self._job_id,
-            options,
-        )
-        worker.signals.finished.connect(self._on_analysis_finished)
-        worker.signals.failed.connect(self._on_analysis_failed)
-
-        self._analysis_worker = worker
-        self._thread_pool.start(worker)
-
-    def _on_analysis_finished(self, result: AnalysisRunResult) -> None:
-        self._analysis_worker = None
-        self.analyze_btn.setEnabled(True)
-        self.status_label.setText(self._tr.t("review.analysis_done"))
-
-        preview = result.output_text.strip()
-        if len(preview) > 700:
-            preview = preview[:700].rstrip() + "..."
-
-        QMessageBox.information(
-            self,
-            self._tr.t("review.analysis_done_title"),
-            "\n".join(
-                [
-                    f"Provider: {result.provider_name}",
-                    f"Model: {result.model_identifier or self._tr.t('review.analysis_model_na')}",
-                    f"Output: {result.output_markdown_path}",
-                    "",
-                    preview,
-                ]
-            ),
-        )
-
-    def _on_analysis_failed(self, error: str) -> None:
-        self._analysis_worker = None
-        self.analyze_btn.setEnabled(True)
-        self.status_label.setText(self._tr.t("review.analysis_fail"))
-        QMessageBox.critical(self, self._tr.t("review.analysis_fail"), error)
 
     def _resolve_project_name(self, project_id: str) -> str:
         project = self._container.project_repository.get_by_id(project_id)

@@ -441,15 +441,6 @@ class MainWindow(QMainWindow):
         self._container.settings.ui_language = new_settings.ui_language
         self._container.settings.ui_theme = new_settings.ui_theme
 
-        self._container.settings.ai_analysis_enabled = new_settings.ai_analysis_enabled
-        self._container.settings.ai_analysis_provider = new_settings.ai_analysis_provider
-        self._container.settings.ai_analysis_endpoint = new_settings.ai_analysis_endpoint
-        self._container.settings.ai_analysis_api_key = new_settings.ai_analysis_api_key
-        self._container.settings.ai_analysis_model = new_settings.ai_analysis_model
-        self._container.settings.ai_analysis_default_template = new_settings.ai_analysis_default_template
-        self._container.settings.ai_analysis_default_prompt = new_settings.ai_analysis_default_prompt
-        self._container.settings.ai_analysis_output_language = new_settings.ai_analysis_output_language
-
         self._container.settings_store.save(self._container.settings)
         self._runtime_report = None
 

@@ -19,10 +19,6 @@
   - `txt`
   - `json`
   - `srt`
-- Optional AI analysis module (external API, explicit opt-in):
-  - provider abstraction
-  - prompt/template editor
-  - persisted analysis request/response artifacts
 - Multilingual interface support:
   - supported selection: `en`, `es`, `de`, `fr`, `it`
   - default behavior: system language
@@ -65,25 +61,6 @@ Open `Settings` in app and configure:
 - optional local paths for ASR model directories
 - pyannote local model path (MVP provisioning path)
 - optional Hugging Face token for gated model access
-- optional AI analysis provider endpoint/model/api key
-
-## AI analysis module
-
-AI analysis is disabled by default and never changes the canonical transcript.
-
-To enable:
-
-1. Open `Settings` -> `AI analysis`
-2. Enable the module
-3. Choose provider (`openai_compatible`)
-4. Set endpoint, model, and API key
-5. In `Review`, click `Analyze (AI)` and choose prompt/template
-
-Artifacts are saved under each job directory in `analysis/`:
-
-- `analysis_request.json`
-- `analysis_response.json`
-- `analysis_output.md`
 
 ## Project layout
 

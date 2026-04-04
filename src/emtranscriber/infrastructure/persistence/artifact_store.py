@@ -20,7 +20,6 @@ class JobArtifactStore:
         *,
         source_file_path: str | None = None,
         created_at: datetime | None = None,
-        include_analysis_dir: bool = False,
     ) -> dict[str, Path]:
         root = Path(artifacts_root_path).expanduser() if artifacts_root_path else self._projects_root
         base = self._resolve_job_base_path(
@@ -40,8 +39,6 @@ class JobArtifactStore:
             # Final transcript artifacts live in the job root for easier access.
             "exports": base,
         }
-        if include_analysis_dir:
-            paths["analysis"] = base / "analysis"
 
         for path in paths.values():
             path.mkdir(parents=True, exist_ok=True)
