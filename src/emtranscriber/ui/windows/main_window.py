@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QSizePolicy,
@@ -116,10 +117,6 @@ class MainWindow(QMainWindow):
         self.new_job_button.clicked.connect(self._on_new_job)
         toolbar.addWidget(self.new_job_button)
 
-        self.start_job_button = QPushButton(self._tr.t("main.start_selected"))
-        self.start_job_button.clicked.connect(self._on_start_selected_job)
-        toolbar.addWidget(self.start_job_button)
-
         self.queue_stop_button = QPushButton(self._tr.t("main.queue_stop"))
         self.queue_stop_button.clicked.connect(self._on_interrupt_queue)
         toolbar.addWidget(self.queue_stop_button)
@@ -127,14 +124,6 @@ class MainWindow(QMainWindow):
         self.queue_resume_button = QPushButton(self._tr.t("main.queue_resume"))
         self.queue_resume_button.clicked.connect(self._on_resume_queue)
         toolbar.addWidget(self.queue_resume_button)
-
-        self.remove_queued_button = QPushButton(self._tr.t("main.queue_remove_selected"))
-        self.remove_queued_button.clicked.connect(self._on_remove_selected_queued)
-        toolbar.addWidget(self.remove_queued_button)
-
-        self.review_button = QPushButton(self._tr.t("main.open_review"))
-        self.review_button.clicked.connect(self._on_open_review_selected)
-        toolbar.addWidget(self.review_button)
 
         self.refresh_button = QPushButton(self._tr.t("main.refresh"))
         self.refresh_button.clicked.connect(self._on_refresh_clicked)
@@ -177,8 +166,10 @@ class MainWindow(QMainWindow):
         self.jobs_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.jobs_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.jobs_table.horizontalHeader().setStretchLastSection(True)
+        self.jobs_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.jobs_table.doubleClicked.connect(self._on_open_review_selected)
         self.jobs_table.itemSelectionChanged.connect(self._update_queue_buttons)
+        self.jobs_table.customContextMenuRequested.connect(self._on_jobs_table_context_menu)
         content.addWidget(self.jobs_table, 1)
         self.jobs_table.setColumnHidden(1, True)
         self.jobs_table.setColumnHidden(2, True)
@@ -412,6 +403,44 @@ class MainWindow(QMainWindow):
 
         self._open_review(job_id)
 
+    def _on_jobs_table_context_menu(self, pos) -> None:
+        index = self.jobs_table.indexAt(pos)
+        if not index.isValid():
+            return
+
+        self.jobs_table.selectRow(index.row())
+        job_id = self._selected_job_id()
+        job = self._jobs_cache_by_id.get(job_id) if job_id else None
+
+        menu = QMenu(self)
+        start_action = menu.addAction(self._tr.t("main.start_selected"))
+        open_review_action = menu.addAction(self._tr.t("main.open_review"))
+        remove_queued_action = menu.addAction(self._tr.t("main.queue_remove_selected"))
+        menu.addSeparator()
+        delete_action = menu.addAction(self._tr.t("main.context_delete_job"))
+
+        if job is not None:
+            remove_queued_action.setEnabled(job.status == JobStatus.QUEUED)
+            delete_action.setEnabled(not self._is_job_running(job.job_id, job.status))
+        else:
+            start_action.setEnabled(False)
+            open_review_action.setEnabled(False)
+            remove_queued_action.setEnabled(False)
+            delete_action.setEnabled(False)
+
+        selected_action = menu.exec(self.jobs_table.viewport().mapToGlobal(pos))
+        if selected_action == start_action:
+            self._on_start_selected_job()
+            return
+        if selected_action == open_review_action:
+            self._on_open_review_selected()
+            return
+        if selected_action == remove_queued_action:
+            self._on_remove_selected_queued()
+            return
+        if selected_action == delete_action:
+            self._on_delete_selected_job()
+
     def _on_credits(self, *_args) -> None:
         dialog = CreditsDialog(self._tr, self)
         dialog.exec()
@@ -597,7 +626,9 @@ class MainWindow(QMainWindow):
         self._start_next_queued_job()
 
     def _start_next_queued_job(self) -> bool:
-        if not self._queue_machine.can_dispatch_next(has_queued_jobs=bool(self._jobs_cache_queued_ids)):
+        queued_jobs = self._container.job_repository.list_by_status(JobStatus.QUEUED, limit=1)
+        has_queued_jobs = bool(queued_jobs)
+        if not self._queue_machine.can_dispatch_next(has_queued_jobs=has_queued_jobs):
             return False
 
         if not self._ensure_runtime_ready_for_processing(show_dialog=False):
@@ -605,8 +636,7 @@ class MainWindow(QMainWindow):
             self._update_queue_buttons()
             return False
 
-        queued_jobs = self._container.job_repository.list_by_status(JobStatus.QUEUED, limit=1)
-        if not queued_jobs:
+        if not has_queued_jobs:
             return False
 
         self._start_job_processing(queued_jobs[0].job_id)
@@ -650,7 +680,9 @@ class MainWindow(QMainWindow):
         if not self._ensure_runtime_ready_for_processing(show_dialog=True):
             return
 
+        self._refresh_jobs()
         self._queue_machine.resume()
+        self._refresh_jobs()
         started = self._start_next_queued_job()
         if not started:
             self._refresh_jobs()
@@ -684,19 +716,66 @@ class MainWindow(QMainWindow):
         self._refresh_jobs()
         self._update_queue_buttons()
 
+    def _on_delete_selected_job(self, *_args) -> None:
+        job_id = self._selected_job_id()
+        if not job_id:
+            QMessageBox.information(self, self._tr.t("common.select_job_title"), self._tr.t("common.select_job_text"))
+            return
+
+        job = self._jobs_cache_by_id.get(job_id)
+        if job is None:
+            QMessageBox.warning(self, self._tr.t("common.warning_title"), self._tr.t("main.delete_not_found"))
+            return
+
+        if self._is_job_running(job_id, job.status):
+            QMessageBox.information(
+                self,
+                self._tr.t("main.delete_blocked_title"),
+                self._tr.t("main.delete_blocked_running"),
+            )
+            return
+
+        response = QMessageBox.question(
+            self,
+            self._tr.t("main.delete_confirm_title"),
+            self._tr.t("main.delete_confirm_text"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if response != QMessageBox.StandardButton.Yes:
+            return
+
+        try:
+            deleted = self._container.job_repository.delete_job(job_id)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(self, self._tr.t("common.error_title"), self._tr.t("main.delete_failed", error=str(exc)))
+            return
+
+        if not deleted:
+            QMessageBox.warning(self, self._tr.t("common.warning_title"), self._tr.t("main.delete_not_found"))
+            self._refresh_jobs()
+            self._update_queue_buttons()
+            return
+
+        review = self._review_windows.pop(job_id, None)
+        if review is not None:
+            review.close()
+
+        self._refresh_jobs()
+        self._update_queue_buttons()
+
+    def _is_job_running(self, job_id: str, status: JobStatus) -> bool:
+        active_job_id = self._queue_machine.snapshot().active_job_id
+        if active_job_id == job_id or job_id in self._active_workers:
+            return True
+        return status in _ACTIVE_PROCESSING_STATUSES
+
     def _update_queue_buttons(self) -> None:
         has_active = self._queue_machine.snapshot().has_active_job
         has_queued = bool(self._jobs_cache_queued_ids)
 
-        selected_job_id = self._selected_job_id()
-        selected_is_queued = False
-        if selected_job_id:
-            selected_job = self._jobs_cache_by_id.get(selected_job_id)
-            selected_is_queued = selected_job is not None and selected_job.status == JobStatus.QUEUED
-
         self.queue_stop_button.setEnabled(has_active or has_queued)
         self.queue_resume_button.setEnabled(self._queue_machine.snapshot().paused)
-        self.remove_queued_button.setEnabled(selected_is_queued)
 
     def _start_job_processing(self, job_id: str) -> None:
         if job_id in self._active_workers:
@@ -744,7 +823,7 @@ class MainWindow(QMainWindow):
         # Throttle refresh frequency to keep UI responsive.
         now = time.monotonic()
         if (now - self._last_jobs_refresh_ts) >= 1.0:
-            self._refresh_jobs(select_job_id=job_id, resize_columns=False)
+            self._refresh_jobs(resize_columns=False)
 
     def _on_worker_finished(self, job_id: str, final_status: str) -> None:
         if self._queue_machine.snapshot().active_job_id == job_id:
@@ -759,7 +838,7 @@ class MainWindow(QMainWindow):
         except InvalidQueueTransition:
             self._queue_machine.clear_active_job()
 
-        self._refresh_jobs(select_job_id=job_id)
+        self._refresh_jobs()
 
         job = self._jobs_cache_by_id.get(job_id)
         if job and job.status in {JobStatus.COMPLETED, JobStatus.PARTIAL_SUCCESS, JobStatus.READY_FOR_REVIEW}:
@@ -781,7 +860,7 @@ class MainWindow(QMainWindow):
         except InvalidQueueTransition:
             self._queue_machine.clear_active_job()
 
-        self._refresh_jobs(select_job_id=job_id)
+        self._refresh_jobs()
 
         started_next = self._start_next_queued_job()
         if not started_next and not self._active_workers:
@@ -817,6 +896,7 @@ class MainWindow(QMainWindow):
         review.show()
 
     def _refresh_jobs(self, select_job_id: str | None = None, *, resize_columns: bool = False) -> None:
+        selected_job_id = select_job_id or self._selected_job_id()
         jobs = self._container.list_jobs_use_case.execute(limit=500)
         self._last_jobs_refresh_ts = time.monotonic()
         self._jobs_cache_by_id = {job.job_id: job for job in jobs}
@@ -855,7 +935,7 @@ class MainWindow(QMainWindow):
             self._set_cell(row_idx, 5, row.completed_at)
             self._set_cell(row_idx, 6, row.source_path)
 
-            if select_job_id and row.job_id == select_job_id:
+            if selected_job_id and row.job_id == selected_job_id:
                 self.jobs_table.selectRow(row_idx)
 
         row_count_changed = self._last_jobs_resize_rows != len(jobs)

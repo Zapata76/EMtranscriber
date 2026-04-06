@@ -190,6 +190,20 @@ class JobRepository:
             )
             conn.commit()
 
+    def delete_job(self, job_id: str) -> bool:
+        with self._database.connect() as conn:
+            conn.execute(
+                "DELETE FROM transcript_words WHERE segment_id IN (SELECT segment_id FROM transcript_segments WHERE job_id = ?)",
+                (job_id,),
+            )
+            conn.execute("DELETE FROM transcript_segments WHERE job_id = ?", (job_id,))
+            conn.execute("DELETE FROM speakers WHERE job_id = ?", (job_id,))
+            conn.execute("DELETE FROM job_context_hints WHERE job_id = ?", (job_id,))
+            deleted = conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,)).rowcount
+            conn.commit()
+
+        return bool(deleted)
+
     @staticmethod
     def _row_to_job(row: dict[str, str]) -> Job:
         created_at = from_iso(row["created_at"])

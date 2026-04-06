@@ -23,6 +23,13 @@
   - supported selection: `en`, `es`, `de`, `fr`, `it`
   - default behavior: system language
   - fallback: English
+- Queue UX:
+  - sequential FIFO execution with one active worker
+  - per-job isolated worker subprocess (`--run-job <job_id>`)
+  - toolbar controls: pause queue / resume queue / interrupt queue
+  - job-row context menu (right click): start selected, open review, remove queued, delete job
+  - delete job is blocked while running and removes related DB rows (`jobs`, hints, transcript, speakers/words)
+  - jobs table keeps the row selected by the user during progress refreshes
 
 ## Agreed product decisions
 
