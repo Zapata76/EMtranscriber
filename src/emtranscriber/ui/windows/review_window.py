@@ -55,21 +55,21 @@ class ReviewWindow(QMainWindow):
         toolbar = QHBoxLayout()
         root.addLayout(toolbar)
 
-        refresh_btn = QPushButton(self._tr.t("review.refresh"))
-        refresh_btn.clicked.connect(self._load)
-        toolbar.addWidget(refresh_btn)
+        self.refresh_button = QPushButton(self._tr.t("review.refresh"))
+        self.refresh_button.clicked.connect(self._load)
+        toolbar.addWidget(self.refresh_button)
 
-        save_segments_btn = QPushButton(self._tr.t("review.save_segments"))
-        save_segments_btn.clicked.connect(self._save_segment_edits)
-        toolbar.addWidget(save_segments_btn)
+        self.save_segments_button = QPushButton(self._tr.t("review.save_segments"))
+        self.save_segments_button.clicked.connect(self._save_segment_edits)
+        toolbar.addWidget(self.save_segments_button)
 
-        save_speakers_btn = QPushButton(self._tr.t("review.save_speakers"))
-        save_speakers_btn.clicked.connect(self._save_speaker_mapping)
-        toolbar.addWidget(save_speakers_btn)
+        self.save_speakers_button = QPushButton(self._tr.t("review.save_speakers"))
+        self.save_speakers_button.clicked.connect(self._save_speaker_mapping)
+        toolbar.addWidget(self.save_speakers_button)
 
-        export_btn = QPushButton(self._tr.t("review.reexport"))
-        export_btn.clicked.connect(self._export)
-        toolbar.addWidget(export_btn)
+        self.export_button = QPushButton(self._tr.t("review.reexport"))
+        self.export_button.clicked.connect(self._export)
+        toolbar.addWidget(self.export_button)
 
         toolbar.addStretch(1)
         self.status_label = QLabel("")
@@ -126,12 +126,31 @@ class ReviewWindow(QMainWindow):
         self._populate_job_config(self._job, hints)
         self._source_audio_file = self._resolve_source_audio_file(self._job)
 
-        document = self._container.get_transcript_document_use_case.execute(self._job_id)
+        document_error: str | None = None
+        try:
+            document = self._container.get_transcript_document_use_case.execute(self._job_id)
+        except Exception as exc:  # noqa: BLE001
+            document = TranscriptDocument(job_id=self._job_id)
+            document_error = str(exc)
+
         self._populate_segments(document)
         self._populate_speakers(document)
-        self.status_label.setText(
-            self._tr.t("review.status_counts", segments=len(document.segments), speakers=len(document.speakers))
-        )
+        if document_error is None:
+            self._set_transcript_actions_enabled(True)
+            self.status_label.setText(
+                self._tr.t("review.status_counts", segments=len(document.segments), speakers=len(document.speakers))
+            )
+            self.status_label.setToolTip("")
+            return
+
+        self._set_transcript_actions_enabled(False)
+        self.status_label.setText(self._tr.t("review.status_pending_document"))
+        self.status_label.setToolTip(document_error)
+
+    def _set_transcript_actions_enabled(self, enabled: bool) -> None:
+        self.save_segments_button.setEnabled(enabled)
+        self.save_speakers_button.setEnabled(enabled)
+        self.export_button.setEnabled(enabled)
 
     def _populate_job_config(self, job: Job | None, hints: JobContextHints | None) -> None:
         if job is None:

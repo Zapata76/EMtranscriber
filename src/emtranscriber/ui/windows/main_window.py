@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import subprocess
 import sys
 import time
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QRadioButton,
     QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
@@ -117,17 +119,21 @@ class MainWindow(QMainWindow):
         self.new_job_button.clicked.connect(self._on_new_job)
         toolbar.addWidget(self.new_job_button)
 
+        self.refresh_button = QPushButton(self._tr.t("main.refresh"))
+        self.refresh_button.clicked.connect(self._on_refresh_clicked)
+        toolbar.addWidget(self.refresh_button)
+
+        self.queue_resume_button = QPushButton(self._tr.t("main.queue_start"))
+        self.queue_resume_button.clicked.connect(self._on_resume_queue)
+        toolbar.addWidget(self.queue_resume_button)
+
         self.queue_stop_button = QPushButton(self._tr.t("main.queue_stop"))
         self.queue_stop_button.clicked.connect(self._on_interrupt_queue)
         toolbar.addWidget(self.queue_stop_button)
 
-        self.queue_resume_button = QPushButton(self._tr.t("main.queue_resume"))
-        self.queue_resume_button.clicked.connect(self._on_resume_queue)
-        toolbar.addWidget(self.queue_resume_button)
-
-        self.refresh_button = QPushButton(self._tr.t("main.refresh"))
-        self.refresh_button.clicked.connect(self._on_refresh_clicked)
-        toolbar.addWidget(self.refresh_button)
+        self.sleep_after_queue_radio = QRadioButton(self._tr.t("main.sleep_after_queue"))
+        self.sleep_after_queue_radio.setAutoExclusive(False)
+        toolbar.addWidget(self.sleep_after_queue_radio)
 
         toolbar.addStretch(1)
 
@@ -390,6 +396,10 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, self._tr.t("common.select_job_title"), self._tr.t("common.select_job_text"))
             return
 
+        job = self._jobs_cache_by_id.get(job_id)
+        if job is None or not self._can_start_selected_job(job):
+            return
+
         if not self._ensure_runtime_ready_for_processing(show_dialog=True):
             return
 
@@ -399,6 +409,10 @@ class MainWindow(QMainWindow):
         job_id = self._selected_job_id()
         if not job_id:
             QMessageBox.information(self, self._tr.t("common.select_job_title"), self._tr.t("common.select_job_text"))
+            return
+
+        job = self._jobs_cache_by_id.get(job_id)
+        if job is None or not self._can_open_review(job):
             return
 
         self._open_review(job_id)
@@ -420,8 +434,10 @@ class MainWindow(QMainWindow):
         delete_action = menu.addAction(self._tr.t("main.context_delete_job"))
 
         if job is not None:
-            remove_queued_action.setEnabled(job.status == JobStatus.QUEUED)
-            delete_action.setEnabled(not self._is_job_running(job.job_id, job.status))
+            start_action.setEnabled(self._can_start_selected_job(job))
+            open_review_action.setEnabled(self._can_open_review(job))
+            remove_queued_action.setEnabled(self._can_remove_selected_queued(job))
+            delete_action.setEnabled(self._can_delete_selected_job(job))
         else:
             start_action.setEnabled(False)
             open_review_action.setEnabled(False)
@@ -651,13 +667,18 @@ class MainWindow(QMainWindow):
             return
 
         if has_active:
-            response = QMessageBox.question(
-                self,
-                self._tr.t("main.queue_stop_title"),
-                self._tr.t("main.queue_stop_text"),
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
-                QMessageBox.StandardButton.Yes,
+            prompt = QMessageBox(self)
+            prompt.setIcon(QMessageBox.Icon.Question)
+            prompt.setWindowTitle(self._tr.t("main.queue_stop_title"))
+            prompt.setText(self._tr.t("main.queue_stop_text"))
+            prompt.setStandardButtons(
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel
             )
+            prompt.setDefaultButton(QMessageBox.StandardButton.Yes)
+            prompt.setButtonText(QMessageBox.StandardButton.Yes, self._tr.t("common.yes"))
+            prompt.setButtonText(QMessageBox.StandardButton.No, self._tr.t("common.no"))
+            prompt.setButtonText(QMessageBox.StandardButton.Cancel, self._tr.t("common.cancel"))
+            response = QMessageBox.StandardButton(prompt.exec())
             if response == QMessageBox.StandardButton.Cancel:
                 return
 
@@ -677,15 +698,26 @@ class MainWindow(QMainWindow):
         self._update_queue_buttons()
 
     def _on_resume_queue(self, *_args) -> None:
+        self._refresh_jobs()
+        has_active = self._queue_machine.snapshot().has_active_job
+        has_queued = bool(self._jobs_cache_queued_ids)
+
+        if not has_active and not has_queued:
+            QMessageBox.information(self, self._tr.t("main.queue_info_title"), self._tr.t("main.queue_empty"))
+            self._update_queue_buttons()
+            return
+
         if not self._ensure_runtime_ready_for_processing(show_dialog=True):
             return
 
-        self._refresh_jobs()
         self._queue_machine.resume()
-        self._refresh_jobs()
-        started = self._start_next_queued_job()
+
+        started = False
+        if not has_active:
+            started = self._start_next_queued_job()
         if not started:
             self._refresh_jobs()
+
         self._update_queue_buttons()
 
     def _on_remove_selected_queued(self, *_args) -> None:
@@ -770,12 +802,59 @@ class MainWindow(QMainWindow):
             return True
         return status in _ACTIVE_PROCESSING_STATUSES
 
-    def _update_queue_buttons(self) -> None:
-        has_active = self._queue_machine.snapshot().has_active_job
-        has_queued = bool(self._jobs_cache_queued_ids)
+    def _can_start_selected_job(self, job: Job) -> bool:
+        if self._is_job_running(job.job_id, job.status):
+            return False
+        return job.status in {JobStatus.CREATED, JobStatus.QUEUED}
 
-        self.queue_stop_button.setEnabled(has_active or has_queued)
-        self.queue_resume_button.setEnabled(self._queue_machine.snapshot().paused)
+    @staticmethod
+    def _can_open_review(_job: Job) -> bool:
+        return True
+
+    @staticmethod
+    def _can_remove_selected_queued(job: Job) -> bool:
+        return job.status == JobStatus.QUEUED
+
+    def _can_delete_selected_job(self, job: Job) -> bool:
+        return not self._is_job_running(job.job_id, job.status)
+
+    def _maybe_suspend_after_queue_completion(self) -> None:
+        if not self.sleep_after_queue_radio.isChecked():
+            return
+        if self._active_workers:
+            return
+        if self._jobs_cache_queued_ids:
+            return
+        if not self._suspend_windows():
+            QMessageBox.warning(
+                self,
+                self._tr.t("common.warning_title"),
+                self._tr.t("main.sleep_after_queue_failed"),
+            )
+
+    @staticmethod
+    def _suspend_windows() -> bool:
+        if sys.platform != "win32":
+            return False
+
+        try:
+            set_suspend_state = ctypes.windll.powrprof.SetSuspendState
+            set_suspend_state.argtypes = [ctypes.c_bool, ctypes.c_bool, ctypes.c_bool]
+            set_suspend_state.restype = ctypes.c_bool
+            # Sleep mode (not hibernate), non-forceful, wake events allowed.
+            return bool(set_suspend_state(False, False, False))
+        except Exception:  # noqa: BLE001
+            return False
+
+    def _update_queue_buttons(self) -> None:
+        has_active = self._queue_machine.snapshot().has_active_job or bool(self._active_workers)
+        has_queued = bool(self._jobs_cache_queued_ids)
+        is_paused = self._queue_machine.snapshot().paused
+
+        label_key = "main.queue_resume" if is_paused else "main.queue_start"
+        self.queue_resume_button.setText(self._tr.t(label_key))
+        self.queue_stop_button.setEnabled(has_active)
+        self.queue_resume_button.setEnabled((not has_active) and has_queued)
 
     def _start_job_processing(self, job_id: str) -> None:
         if job_id in self._active_workers:
@@ -847,6 +926,7 @@ class MainWindow(QMainWindow):
         started_next = self._start_next_queued_job()
         if not started_next and not self._active_workers:
             self._finish_processing_image_cycle(success=final_status in _SUCCESS_FINAL_STATUSES)
+            self._maybe_suspend_after_queue_completion()
 
         self._update_queue_buttons()
 
@@ -865,6 +945,7 @@ class MainWindow(QMainWindow):
         started_next = self._start_next_queued_job()
         if not started_next and not self._active_workers:
             self._finish_processing_image_cycle(success=False)
+            self._maybe_suspend_after_queue_completion()
 
         self._update_queue_buttons()
 
@@ -882,12 +963,6 @@ class MainWindow(QMainWindow):
                 existing.show()
             existing.raise_()
             existing.activateWindow()
-            return
-
-        try:
-            self._container.get_transcript_document_use_case.execute(job_id)
-        except Exception as exc:  # noqa: BLE001
-            QMessageBox.warning(self, self._tr.t("common.warning_title"), str(exc))
             return
 
         review = ReviewWindow(self._container, job_id, self)

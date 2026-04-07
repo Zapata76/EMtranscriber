@@ -26,8 +26,12 @@
 - Queue UX:
   - sequential FIFO execution with one active worker
   - per-job isolated worker subprocess (`--run-job <job_id>`)
-  - toolbar controls: pause queue / resume queue / interrupt queue
-  - job-row context menu (right click): start selected, open review, remove queued, delete job
+  - toolbar order: new job / refresh / start-or-resume queue / pause queue
+  - start/resume button label is dynamic (`Avvia coda` when idle with queued jobs, `Riprendi coda` when paused)
+  - optional main-window toggle: suspend PC when the queue fully completes
+  - job-row context menu (right click): start, open review, remove from queue, delete job
+  - context-menu actions are state-aware (disabled when not valid for current job status)
+  - open review is always available; if transcript artifacts are not ready yet, the window still shows job settings and enters pending/read-only mode for transcript actions
   - delete job is blocked while running and removes related DB rows (`jobs`, hints, transcript, speakers/words)
   - jobs table keeps the row selected by the user during progress refreshes
 
