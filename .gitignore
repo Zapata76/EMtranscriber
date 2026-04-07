@@ -13,6 +13,7 @@ dist_build/
 build/
 docs/
 images/
+src/emtranscriber/ui/resources/_optimized_branding/
 # Keep only canonical PyInstaller specs
 *.spec
 !EMtranscriber.spec

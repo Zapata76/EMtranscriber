@@ -103,24 +103,10 @@ def test_artifact_store_honors_custom_root_override(tmp_path: Path) -> None:
 
     paths = store.ensure_job_directories("proj", "job", str(custom_root))
 
-    assert paths["base"] == custom_root / "EMtranscriber" / "v2" / "proj" / "job"
+    assert paths["base"] == custom_root / "EMtranscriber" / "proj" / "job"
     assert paths["exports"] == paths["base"]
     assert paths["exports"].exists()
-    assert "analysis" not in paths
-
-
-def test_artifact_store_creates_analysis_only_when_requested(tmp_path: Path) -> None:
-    store = JobArtifactStore(tmp_path / "default_root")
-
-    paths = store.ensure_job_directories(
-        "proj",
-        "job",
-        str(tmp_path / "custom_root"),
-        include_analysis_dir=True,
-    )
-
-    assert "analysis" in paths
-    assert paths["analysis"].exists()
+    assert set(paths.keys()) == {"base", "source", "working", "raw", "merged", "exports"}
 
 
 def test_artifact_store_uses_timestamp_folder_when_metadata_available(tmp_path: Path) -> None:
@@ -136,7 +122,7 @@ def test_artifact_store_uses_timestamp_folder_when_metadata_available(tmp_path: 
         created_at=created_at,
     )
 
-    assert paths["base"] == custom_root / "EMtranscriber" / "v2" / "20260330_094512"
+    assert paths["base"] == custom_root / "EMtranscriber" / "20260330_094512"
 
 
 def test_artifact_store_prefers_existing_legacy_layout(tmp_path: Path) -> None:

@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (
-    QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
@@ -13,13 +12,12 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
-from emtranscriber.infrastructure.ai_analysis.templates import available_templates
 from emtranscriber.infrastructure.settings.app_settings import AppSettings
 from emtranscriber.shared.i18n import UiTranslator
 
@@ -39,27 +37,35 @@ class SettingsDialog(QDialog):
         self._focus_hf_token = focus_hf_token
 
         self.setWindowTitle(self._tr.t("settings.title"))
-        self.resize(820, 760)
+        self.resize(820, 520)
 
         root = QVBoxLayout(self)
+        root.setSpacing(8)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self._build_defaults_group(root)
         self._build_asr_paths_group(root)
         self._build_pyannote_group(root)
-        self._build_ai_analysis_group(root)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)
 
-        self._refresh_ai_controls()
+        content_height = self.sizeHint().height()
+        self.resize(820, content_height)
+        self.setFixedHeight(content_height)
+
         if self._focus_hf_token:
             QTimer.singleShot(0, self._focus_hf_token_field)
 
     def _build_defaults_group(self, root: QVBoxLayout) -> None:
         general_box = QGroupBox(self._tr.t("settings.defaults"))
         general_form = QFormLayout(general_box)
+        general_form.setContentsMargins(8, 6, 8, 6)
+        general_form.setVerticalSpacing(4)
+        general_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         root.addWidget(general_box)
 
         self.ui_language_combo = QComboBox()
@@ -98,6 +104,9 @@ class SettingsDialog(QDialog):
     def _build_asr_paths_group(self, root: QVBoxLayout) -> None:
         models_box = QGroupBox(self._tr.t("settings.asr_paths"))
         models_layout = QGridLayout(models_box)
+        models_layout.setContentsMargins(8, 6, 8, 6)
+        models_layout.setVerticalSpacing(4)
+        models_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         root.addWidget(models_box)
 
         self.path_small = self._create_path_row(models_layout, 0, "small", self._settings.asr_model_paths.get("small"))
@@ -107,6 +116,9 @@ class SettingsDialog(QDialog):
     def _build_pyannote_group(self, root: QVBoxLayout) -> None:
         pyannote_box = QGroupBox(self._tr.t("settings.pyannote_group"))
         pyannote_form = QFormLayout(pyannote_box)
+        pyannote_form.setContentsMargins(8, 6, 8, 6)
+        pyannote_form.setVerticalSpacing(4)
+        pyannote_box.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         root.addWidget(pyannote_box)
 
         pyannote_row = QHBoxLayout()
@@ -121,52 +133,6 @@ class SettingsDialog(QDialog):
         self.hf_token_edit.setEchoMode(QLineEdit.EchoMode.Password)
         self.hf_token_edit.setPlaceholderText(self._tr.t("settings.hf_token_ph"))
         pyannote_form.addRow(self._tr.t("settings.hf_token"), self.hf_token_edit)
-
-    def _build_ai_analysis_group(self, root: QVBoxLayout) -> None:
-        ai_box = QGroupBox(self._tr.t("settings.ai_group"))
-        ai_form = QFormLayout(ai_box)
-        root.addWidget(ai_box)
-
-        self.ai_enabled_check = QCheckBox(self._tr.t("settings.ai_enable"))
-        self.ai_enabled_check.setChecked(self._settings.ai_analysis_enabled)
-        self.ai_enabled_check.toggled.connect(self._refresh_ai_controls)
-        ai_form.addRow(self.ai_enabled_check)
-
-        self.ai_provider_combo = QComboBox()
-        self.ai_provider_combo.addItem("disabled")
-        self.ai_provider_combo.addItem("openai_compatible")
-        self.ai_provider_combo.setCurrentText(self._settings.ai_analysis_provider or "disabled")
-        self.ai_provider_combo.currentTextChanged.connect(self._refresh_ai_controls)
-        ai_form.addRow(self._tr.t("settings.provider"), self.ai_provider_combo)
-
-        self.ai_endpoint_edit = QLineEdit(self._settings.ai_analysis_endpoint)
-        self.ai_endpoint_edit.setPlaceholderText("https://api.openai.com/v1/chat/completions")
-        ai_form.addRow(self._tr.t("settings.endpoint"), self.ai_endpoint_edit)
-
-        self.ai_model_edit = QLineEdit(self._settings.ai_analysis_model or "")
-        self.ai_model_edit.setPlaceholderText("gpt-4.1-mini")
-        ai_form.addRow(self._tr.t("settings.model"), self.ai_model_edit)
-
-        self.ai_api_key_edit = QLineEdit(self._settings.ai_analysis_api_key or "")
-        self.ai_api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
-        self.ai_api_key_edit.setPlaceholderText(self._tr.t("settings.api_key"))
-        ai_form.addRow(self._tr.t("settings.api_key"), self.ai_api_key_edit)
-
-        self.ai_template_combo = QComboBox()
-        for key, label in available_templates():
-            self.ai_template_combo.addItem(label, key)
-        template_index = self.ai_template_combo.findData(self._settings.ai_analysis_default_template)
-        self.ai_template_combo.setCurrentIndex(template_index if template_index >= 0 else 0)
-        ai_form.addRow(self._tr.t("settings.default_template"), self.ai_template_combo)
-
-        self.ai_output_language_edit = QLineEdit(self._settings.ai_analysis_output_language or "")
-        self.ai_output_language_edit.setPlaceholderText(self._tr.t("settings.output_language_placeholder"))
-        ai_form.addRow(self._tr.t("settings.output_language"), self.ai_output_language_edit)
-
-        self.ai_prompt_edit = QPlainTextEdit(self._settings.ai_analysis_default_prompt or "")
-        self.ai_prompt_edit.setPlaceholderText(self._tr.t("settings.default_prompt_ph"))
-        self.ai_prompt_edit.setFixedHeight(120)
-        ai_form.addRow(self._tr.t("settings.default_prompt"), self.ai_prompt_edit)
 
     def build_settings(self) -> AppSettings:
         paths = {
@@ -188,14 +154,6 @@ class SettingsDialog(QDialog):
             huggingface_token=self.hf_token_edit.text().strip() or None,
             ui_language=ui_language_value,
             ui_theme=ui_theme_value,
-            ai_analysis_enabled=self.ai_enabled_check.isChecked(),
-            ai_analysis_provider=self.ai_provider_combo.currentText(),
-            ai_analysis_endpoint=self.ai_endpoint_edit.text().strip(),
-            ai_analysis_api_key=self.ai_api_key_edit.text().strip() or None,
-            ai_analysis_model=self.ai_model_edit.text().strip() or None,
-            ai_analysis_default_template=self.ai_template_combo.currentData(),
-            ai_analysis_default_prompt=self.ai_prompt_edit.toPlainText().strip(),
-            ai_analysis_output_language=self.ai_output_language_edit.text().strip() or None,
         )
 
     def _create_path_row(self, layout: QGridLayout, row: int, label: str, value: str | None) -> QLineEdit:
@@ -211,18 +169,6 @@ class SettingsDialog(QDialog):
         path = QFileDialog.getExistingDirectory(self, self._tr.t("common.browse"))
         if path:
             line_edit.setText(path)
-
-    def _refresh_ai_controls(self, *_args) -> None:
-        enabled = self.ai_enabled_check.isChecked()
-        provider_active = enabled and self.ai_provider_combo.currentText() != "disabled"
-
-        self.ai_provider_combo.setEnabled(enabled)
-        self.ai_endpoint_edit.setEnabled(provider_active)
-        self.ai_model_edit.setEnabled(provider_active)
-        self.ai_api_key_edit.setEnabled(provider_active)
-        self.ai_template_combo.setEnabled(enabled)
-        self.ai_output_language_edit.setEnabled(enabled)
-        self.ai_prompt_edit.setEnabled(enabled)
 
     def _focus_hf_token_field(self) -> None:
         self.hf_token_edit.setFocus()

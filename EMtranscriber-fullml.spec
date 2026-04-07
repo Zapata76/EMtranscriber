@@ -12,6 +12,9 @@ sidebar_candidates = [
 ]
 
 datas = [('migrations', 'migrations'), ('LICENSE', '.')]
+branding_rcc_path = project_root / "src" / "emtranscriber" / "ui" / "resources" / "branding.rcc"
+if branding_rcc_path.exists():
+    datas.append((str(branding_rcc_path), 'emtranscriber/ui/resources'))
 if icon_path.exists():
     datas.append((str(icon_path), 'packaging/assets'))
 for sidebar_path in sidebar_candidates:

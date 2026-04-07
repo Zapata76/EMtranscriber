@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QThreadPool, Qt, QTimer, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
@@ -13,19 +13,17 @@ from PySide6.QtWidgets import (
     QPushButton,
     QSizePolicy,
     QSplitter,
+    QStyle,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
-from emtranscriber.application.dto.analysis_run_result import AnalysisRunResult
-from emtranscriber.application.workers.analysis_worker import AnalysisWorker
 from emtranscriber.bootstrap import AppContainer
 from emtranscriber.domain.entities.job import Job
 from emtranscriber.domain.entities.job_context_hints import JobContextHints
 from emtranscriber.domain.entities.transcript_document import TranscriptDocument
-from emtranscriber.ui.dialogs.analysis_dialog import AnalysisDialog
 
 
 class ReviewWindow(QMainWindow):
@@ -34,8 +32,6 @@ class ReviewWindow(QMainWindow):
         self._container = container
         self._tr = container.translator
         self._job_id = job_id
-        self._thread_pool = QThreadPool.globalInstance()
-        self._analysis_worker: AnalysisWorker | None = None
         self._original_segment_text_by_id: dict[str, str] = {}
         self._original_speaker_name_by_key: dict[str, str] = {}
 
@@ -59,25 +55,21 @@ class ReviewWindow(QMainWindow):
         toolbar = QHBoxLayout()
         root.addLayout(toolbar)
 
-        refresh_btn = QPushButton(self._tr.t("review.refresh"))
-        refresh_btn.clicked.connect(self._load)
-        toolbar.addWidget(refresh_btn)
+        self.refresh_button = QPushButton(self._tr.t("review.refresh"))
+        self.refresh_button.clicked.connect(self._load)
+        toolbar.addWidget(self.refresh_button)
 
-        save_segments_btn = QPushButton(self._tr.t("review.save_segments"))
-        save_segments_btn.clicked.connect(self._save_segment_edits)
-        toolbar.addWidget(save_segments_btn)
+        self.save_segments_button = QPushButton(self._tr.t("review.save_segments"))
+        self.save_segments_button.clicked.connect(self._save_segment_edits)
+        toolbar.addWidget(self.save_segments_button)
 
-        save_speakers_btn = QPushButton(self._tr.t("review.save_speakers"))
-        save_speakers_btn.clicked.connect(self._save_speaker_mapping)
-        toolbar.addWidget(save_speakers_btn)
+        self.save_speakers_button = QPushButton(self._tr.t("review.save_speakers"))
+        self.save_speakers_button.clicked.connect(self._save_speaker_mapping)
+        toolbar.addWidget(self.save_speakers_button)
 
-        export_btn = QPushButton(self._tr.t("review.reexport"))
-        export_btn.clicked.connect(self._export)
-        toolbar.addWidget(export_btn)
-
-        self.analyze_btn = QPushButton(self._tr.t("review.analyze"))
-        self.analyze_btn.clicked.connect(self._on_analyze)
-        toolbar.addWidget(self.analyze_btn)
+        self.export_button = QPushButton(self._tr.t("review.reexport"))
+        self.export_button.clicked.connect(self._export)
+        toolbar.addWidget(self.export_button)
 
         toolbar.addStretch(1)
         self.status_label = QLabel("")
@@ -134,12 +126,31 @@ class ReviewWindow(QMainWindow):
         self._populate_job_config(self._job, hints)
         self._source_audio_file = self._resolve_source_audio_file(self._job)
 
-        document = self._container.get_transcript_document_use_case.execute(self._job_id)
+        document_error: str | None = None
+        try:
+            document = self._container.get_transcript_document_use_case.execute(self._job_id)
+        except Exception as exc:  # noqa: BLE001
+            document = TranscriptDocument(job_id=self._job_id)
+            document_error = str(exc)
+
         self._populate_segments(document)
         self._populate_speakers(document)
-        self.status_label.setText(
-            self._tr.t("review.status_counts", segments=len(document.segments), speakers=len(document.speakers))
-        )
+        if document_error is None:
+            self._set_transcript_actions_enabled(True)
+            self.status_label.setText(
+                self._tr.t("review.status_counts", segments=len(document.segments), speakers=len(document.speakers))
+            )
+            self.status_label.setToolTip("")
+            return
+
+        self._set_transcript_actions_enabled(False)
+        self.status_label.setText(self._tr.t("review.status_pending_document"))
+        self.status_label.setToolTip(document_error)
+
+    def _set_transcript_actions_enabled(self, enabled: bool) -> None:
+        self.save_segments_button.setEnabled(enabled)
+        self.save_speakers_button.setEnabled(enabled)
+        self.export_button.setEnabled(enabled)
 
     def _populate_job_config(self, job: Job | None, hints: JobContextHints | None) -> None:
         if job is None:
@@ -201,14 +212,32 @@ class ReviewWindow(QMainWindow):
 
         can_play = self._source_audio_file is not None and self._ensure_audio_backend()
         for row_idx, seg in enumerate(document.segments):
-            play_button = QPushButton(self._tr.t("review.play_button"))
+            buttons_widget = QWidget()
+            buttons_layout = QHBoxLayout(buttons_widget)
+            buttons_layout.setContentsMargins(2, 2, 2, 2)
+            buttons_layout.setSpacing(2)
+
+            play_button = QPushButton()
+            play_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+            play_button.setToolTip(self._tr.t("review.play_button"))
             play_button.setEnabled(can_play)
+
+            stop_button = QPushButton()
+            stop_button.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
+            stop_button.setToolTip(self._tr.t("review.stop_button"))
+            stop_button.setEnabled(can_play)
+
             if can_play:
-                play_button.clicked.connect(lambda _checked=False, start_ms=seg.start_ms: self._play_segment(start_ms))
+                play_button.clicked.connect(lambda _checked=False, start_ms=seg.start_ms, end_ms=seg.end_ms: self._play_segment(start_ms, end_ms))
+                stop_button.clicked.connect(self._stop_playback)
             else:
                 tooltip_key = "review.play_unavailable" if self._source_audio_file is None else "review.play_backend_unavailable"
                 play_button.setToolTip(self._tr.t(tooltip_key))
-            self.segment_table.setCellWidget(row_idx, 0, play_button)
+                stop_button.setToolTip(self._tr.t(tooltip_key))
+
+            buttons_layout.addWidget(play_button)
+            buttons_layout.addWidget(stop_button)
+            self.segment_table.setCellWidget(row_idx, 0, buttons_widget)
 
             start_item = QTableWidgetItem(self._clock(seg.start_ms))
             start_item.setFlags(start_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
@@ -300,79 +329,13 @@ class ReviewWindow(QMainWindow):
         export_lines = "\n".join(f"{fmt}: {path}" for fmt, path in outputs.items())
         QMessageBox.information(self, self._tr.t("review.export_done"), export_lines)
 
-    def _on_analyze(self) -> None:
-        if self._analysis_worker is not None:
-            QMessageBox.information(
-                self,
-                self._tr.t("review.analysis_busy_title"),
-                self._tr.t("review.analysis_busy_text"),
-            )
-            return
-
-        if not self._container.settings.ai_analysis_enabled:
-            QMessageBox.information(
-                self,
-                self._tr.t("review.analysis_disabled_title"),
-                self._tr.t("review.analysis_disabled_text"),
-            )
-            return
-
-        dialog = AnalysisDialog(self._container.settings, self._tr, self)
-        if dialog.exec() != AnalysisDialog.DialogCode.Accepted:
-            return
-
-        options = dialog.build_options()
-
-        self.analyze_btn.setEnabled(False)
-        self.status_label.setText(self._tr.t("review.analysis_running"))
-
-        worker = AnalysisWorker(
-            self._container.analyze_transcript_use_case,
-            self._job_id,
-            options,
-        )
-        worker.signals.finished.connect(self._on_analysis_finished)
-        worker.signals.failed.connect(self._on_analysis_failed)
-
-        self._analysis_worker = worker
-        self._thread_pool.start(worker)
-
-    def _on_analysis_finished(self, result: AnalysisRunResult) -> None:
-        self._analysis_worker = None
-        self.analyze_btn.setEnabled(True)
-        self.status_label.setText(self._tr.t("review.analysis_done"))
-
-        preview = result.output_text.strip()
-        if len(preview) > 700:
-            preview = preview[:700].rstrip() + "..."
-
-        QMessageBox.information(
-            self,
-            self._tr.t("review.analysis_done_title"),
-            "\n".join(
-                [
-                    f"Provider: {result.provider_name}",
-                    f"Model: {result.model_identifier or self._tr.t('review.analysis_model_na')}",
-                    f"Output: {result.output_markdown_path}",
-                    "",
-                    preview,
-                ]
-            ),
-        )
-
-    def _on_analysis_failed(self, error: str) -> None:
-        self._analysis_worker = None
-        self.analyze_btn.setEnabled(True)
-        self.status_label.setText(self._tr.t("review.analysis_fail"))
-        QMessageBox.critical(self, self._tr.t("review.analysis_fail"), error)
-
     def _resolve_project_name(self, project_id: str) -> str:
         project = self._container.project_repository.get_by_id(project_id)
         if project is not None and project.name.strip():
             return project.name.strip()
         return project_id
 
-    def _play_segment(self, start_ms: int) -> None:
+    def _play_segment(self, start_ms: int, end_ms: int | None = None) -> None:
         if self._source_audio_file is None or not self._ensure_audio_backend():
             return
 
@@ -391,10 +354,10 @@ class ReviewWindow(QMainWindow):
                 self._media_player.stop()
                 self._media_player.setSource(source_url)
                 self._last_played_source = self._source_audio_file
-                QTimer.singleShot(120, lambda: self._start_playback_from(start_ms))
+                QTimer.singleShot(120, lambda: self._start_playback_from(start_ms, end_ms))
                 return
 
-            self._start_playback_from(start_ms)
+            self._start_playback_from(start_ms, end_ms)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.warning(
                 self,
@@ -402,11 +365,18 @@ class ReviewWindow(QMainWindow):
                 self._tr.t("review.play_error_text", error=str(exc)),
             )
 
-    def _start_playback_from(self, start_ms: int) -> None:
+    def _start_playback_from(self, start_ms: int, end_ms: int | None = None) -> None:
         if self._media_player is None:
             return
+        
+        self._playback_end_ms = end_ms
         self._media_player.setPosition(max(int(start_ms), 0))
         self._media_player.play()
+
+    def _stop_playback(self) -> None:
+        if self._media_player is not None:
+            self._media_player.stop()
+            self._playback_end_ms = None
 
     def _ensure_audio_backend(self) -> bool:
         if self._audio_backend_checked:
@@ -421,12 +391,21 @@ class ReviewWindow(QMainWindow):
             self._media_player.setAudioOutput(self._audio_output)
             self._audio_output.setVolume(1.0)
             self._audio_backend_available = True
+            
+            self._playback_end_ms: int | None = None
+            self._media_player.positionChanged.connect(self._on_player_position_changed)
         except Exception:
             self._audio_output = None
             self._media_player = None
             self._audio_backend_available = False
 
         return self._audio_backend_available
+
+    def _on_player_position_changed(self, position_ms: int) -> None:
+        if self._playback_end_ms is not None and position_ms >= self._playback_end_ms:
+            if self._media_player is not None:
+                self._media_player.stop()
+            self._playback_end_ms = None
 
     def _resolve_source_audio_file(self, job: Job | None) -> Path | None:
         if job is None:
@@ -452,9 +431,9 @@ class ReviewWindow(QMainWindow):
 
         if job.created_at is not None and job.source_file_path:
             folder_name = job.created_at.strftime("%Y%m%d_%H%M%S")
-            candidates.append(em_root / "v2" / folder_name)
+            candidates.append(em_root / folder_name)
 
-        candidates.append(em_root / "v2" / job.project_id / job.job_id)
+        candidates.append(em_root / job.project_id / job.job_id)
         candidates.append(root / job.project_id / "jobs" / job.job_id)
         candidates.append(root / job.project_id / job.job_id)
         candidates.append(em_root / job.job_id)
@@ -480,7 +459,17 @@ class ReviewWindow(QMainWindow):
 
         for row_idx in range(self.segment_table.rowCount()):
             widget = self.segment_table.cellWidget(row_idx, 0)
-            if isinstance(widget, QPushButton):
+            if isinstance(widget, QWidget) and widget.layout() is not None:
+                layout = widget.layout()
+                for idx in range(layout.count()):
+                    item = layout.itemAt(idx)
+                    if item and item.widget() and isinstance(item.widget(), QPushButton):
+                        btn = item.widget()
+                        btn.setEnabled(enabled)
+                        # Avoid overwriting Stop button tooltip unless disabled
+                        if not enabled:
+                            btn.setToolTip(tooltip)
+            elif isinstance(widget, QPushButton):
                 widget.setEnabled(enabled)
                 widget.setToolTip(tooltip)
 

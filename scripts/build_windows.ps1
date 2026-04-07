@@ -25,6 +25,7 @@ $args = @(
     "--onedir",
     "--paths", "src",
     "--add-data", "migrations;migrations",
+    "--add-data", "src/emtranscriber/ui/resources/branding.rcc;emtranscriber/ui/resources",
     "--add-data", "LICENSE;.",
     "--add-data", "requirements-ml.txt;.",
     "--add-data", "scripts/install_ml_runtime.ps1;.",

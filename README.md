@@ -19,14 +19,21 @@
   - `txt`
   - `json`
   - `srt`
-- Optional AI analysis module (external API, explicit opt-in):
-  - provider abstraction
-  - prompt/template editor
-  - persisted analysis request/response artifacts
 - Multilingual interface support:
   - supported selection: `en`, `es`, `de`, `fr`, `it`
   - default behavior: system language
   - fallback: English
+- Queue UX:
+  - sequential FIFO execution with one active worker
+  - per-job isolated worker subprocess (`--run-job <job_id>`)
+  - toolbar order: new job / refresh / start-or-resume queue / pause queue
+  - start/resume button label is dynamic (`Avvia coda` when idle with queued jobs, `Riprendi coda` when paused)
+  - optional main-window toggle: suspend PC when the queue fully completes
+  - job-row context menu (right click): start, open review, remove from queue, delete job
+  - context-menu actions are state-aware (disabled when not valid for current job status)
+  - open review is always available; if transcript artifacts are not ready yet, the window still shows job settings and enters pending/read-only mode for transcript actions
+  - delete job is blocked while running and removes related DB rows (`jobs`, hints, transcript, speakers/words)
+  - jobs table keeps the row selected by the user during progress refreshes
 
 ## Agreed product decisions
 
@@ -65,25 +72,6 @@ Open `Settings` in app and configure:
 - optional local paths for ASR model directories
 - pyannote local model path (MVP provisioning path)
 - optional Hugging Face token for gated model access
-- optional AI analysis provider endpoint/model/api key
-
-## AI analysis module
-
-AI analysis is disabled by default and never changes the canonical transcript.
-
-To enable:
-
-1. Open `Settings` -> `AI analysis`
-2. Enable the module
-3. Choose provider (`openai_compatible`)
-4. Set endpoint, model, and API key
-5. In `Review`, click `Analyze (AI)` and choose prompt/template
-
-Artifacts are saved under each job directory in `analysis/`:
-
-- `analysis_request.json`
-- `analysis_response.json`
-- `analysis_output.md`
 
 ## Project layout
 
@@ -130,13 +118,44 @@ EMtranscriber is released under the **GNU General Public License v3.0 (GPL-3.0)*
 ```powershell
 python -m pip install --user -e .[build] --no-build-isolation
 python -m pip install --user -r requirements-ml.txt
-python scripts/prepare_branding_assets.py --icon-source "C:\\path\\to\\icon-image.png" --sidebar-source "C:\\path\\to\\sidebar-image.jpg"
+.\\scripts\\build_windows.ps1 -Profile full-ml
+```
+
+Available build profiles:
+
+- `full-ml` (recommended): bundles ML dependencies into the app package.
+- `ui-shell`: keeps a lighter package and loads ML runtime from local Python site-packages (for example `%APPDATA%\\Python\\Python3xx\\site-packages`).
+
+During build, `scripts/build_windows.ps1` automatically runs `scripts/sync_branding_resources.py` to:
+
+- regenerate `packaging/assets/emtranscriber.ico`
+- regenerate `src/emtranscriber/ui/resources/branding.qrc`
+- regenerate `src/emtranscriber/ui/resources/branding.rcc`
+
+If source images/config are unchanged, branding regeneration is skipped automatically.
+
+Example for `ui-shell`:
+
+```powershell
 .\\scripts\\build_windows.ps1 -Profile ui-shell
 ```
 
-`ui-shell` now builds an executable that uses the **real** pipeline adapters and can transcribe audio,
-loading ML runtime packages from local Python site-packages (for example `%APPDATA%\Python\Python310\site-packages`).
-
 PyInstaller output is generated in `dist\EMtranscriber`.
+
+## Headless job worker mode (internal)
+
+The app supports running a single job in isolated/headless mode:
+
+```powershell
+python -m emtranscriber.main --run-job <job_id>
+```
+
+In packaged builds:
+
+```powershell
+.\dist\EMtranscriber\EMtranscriber.exe --run-job <job_id>
+```
+
+The worker writes JSON-line events to stdout (`progress`, `finished`, `error`) and exits with a non-zero code on failure.
 
 

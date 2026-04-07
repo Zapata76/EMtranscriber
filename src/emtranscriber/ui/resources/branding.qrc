@@ -1,16 +1,18 @@
 <RCC>
+  <!-- branding-sync-signature: 4c9c69125a3cd1a679ffbcf135b8985644ec0da77b44f8e2ac0c214a39daf141 -->
   <qresource prefix="/branding">
-    <file alias="desperate">../../../../images/desperate.PNG</file>
-    <file alias="fail">../../../../images/fail.PNG</file>
+    <file alias="desperate">_optimized_branding/desperate.jpg</file>
+    <file alias="destruction">_optimized_branding/destruction.jpg</file>
+    <file alias="fail">_optimized_branding/fail.jpg</file>
     <file alias="icon">_generated_icon.png</file>
-    <file alias="panic">../../../../images/panic.PNG</file>
-    <file alias="sad">../../../../images/sad.PNG</file>
-    <file alias="tired">../../../../images/tired.png</file>
-    <file alias="welcome">../../../../images/welcome.PNG</file>
-    <file alias="working1">../../../../images/working1.PNG</file>
-    <file alias="working2">../../../../images/working2.PNG</file>
-    <file alias="working3">../../../../images/working3.PNG</file>
-    <file alias="working4">../../../../images/working4.PNG</file>
-    <file alias="working5">../../../../images/working5.PNG</file>
+    <file alias="panic">_optimized_branding/panic.jpg</file>
+    <file alias="sad">_optimized_branding/sad.jpg</file>
+    <file alias="tired">_optimized_branding/tired.jpg</file>
+    <file alias="welcome">_optimized_branding/welcome.jpg</file>
+    <file alias="working1">_optimized_branding/working1.jpg</file>
+    <file alias="working2">_optimized_branding/working2.jpg</file>
+    <file alias="working3">_optimized_branding/working3.jpg</file>
+    <file alias="working4">_optimized_branding/working4.jpg</file>
+    <file alias="working5">_optimized_branding/working5.jpg</file>
   </qresource>
 </RCC>

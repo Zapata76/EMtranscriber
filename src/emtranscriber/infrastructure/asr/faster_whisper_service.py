@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gc
 import logging
 import os
 import sys
@@ -193,9 +194,33 @@ class FasterWhisperService:
 
         cache_key = (model_ref, device, compute_type)
         if cache_key not in self._models:
+            self._logger.debug(
+                "Loading ASR model: ref=%s, device=%s, compute_type=%s",
+                model_ref,
+                device,
+                compute_type,
+            )
             self._models[cache_key] = WhisperModel(model_ref, device=device, compute_type=compute_type)
+            self._logger.debug("ASR model loaded and cached: %s", model_ref)
+        else:
+            self._logger.debug("Using cached ASR model: %s (device=%s, compute=%s)", model_ref, device, compute_type)
 
         return self._models[cache_key]
+
+    def release_resources(self) -> None:
+        cached_models = len(self._models)
+        self._models.clear()
+
+        try:
+            torch = import_module("torch")
+            cuda = getattr(torch, "cuda", None)
+            if cuda is not None and callable(getattr(cuda, "is_available", None)) and cuda.is_available():
+                cuda.empty_cache()
+        except Exception:  # noqa: BLE001
+            pass
+
+        gc.collect()
+        self._logger.info("ASR resources released (cached_models=%d)", cached_models)
 
     def _resolve_model_ref(self, model_name: str) -> str:
         override = self._settings.asr_model_paths.get(model_name)

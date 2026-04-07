@@ -53,6 +53,13 @@ QMenuBar, QMenu {
     background-color: #1f232a;
     color: #e6edf3;
 }
+QMenu::item:disabled {
+    color: #7a8592;
+}
+QMenu::item:selected:disabled {
+    background-color: #1f232a;
+    color: #7a8592;
+}
 QLabel#mainSidebarImage {
     border: 1px solid #3b4652;
     background-color: #151a20;
